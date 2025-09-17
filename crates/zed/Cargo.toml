@@ -44,6 +44,7 @@ collections.workspace = true
 command_palette.workspace = true
 component.workspace = true
 copilot.workspace = true
+copilot_v2.workspace = true
 crashes.workspace = true
 dap_adapters.workspace = true
 db.workspace = true

@@ -43,6 +43,7 @@ members = [
     "crates/component",
     "crates/context_server",
     "crates/copilot",
+    "crates/copilot_v2",
     "crates/crashes",
     "crates/credentials_provider",
     "crates/dap",
@@ -276,6 +277,7 @@ command_palette_hooks = { path = "crates/command_palette_hooks" }
 component = { path = "crates/component" }
 context_server = { path = "crates/context_server" }
 copilot = { path = "crates/copilot" }
+copilot_v2 = { path = "crates/copilot_v2" }
 crashes = { path = "crates/crashes" }
 credentials_provider = { path = "crates/credentials_provider" }
 crossbeam = "0.8.4"
