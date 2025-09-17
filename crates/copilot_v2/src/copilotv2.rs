@@ -207,7 +207,9 @@ impl RegisteredBuffer {
         let (done_tx, done_rx) = oneshot::channel();
 
         if buffer.read(cx).version() == self.snapshot.version {
-            let _ = done_tx.send((self.snapshot_version, self.snapshot.clone()));
+            if done_tx.send((self.snapshot_version, self.snapshot.clone())).is_err() {
+                log::warn!("Buffer change receiver dropped");
+            }
         } else {
             let buffer = buffer.downgrade();
             let id = buffer.entity_id();
@@ -271,7 +273,9 @@ impl RegisteredBuffer {
                                 )
                                 .ok();
                         }
-                        let _ = done_tx.send((buffer.snapshot_version, buffer.snapshot.clone()));
+                        if done_tx.send((buffer.snapshot_version, buffer.snapshot.clone())).is_err() {
+                            log::warn!("Buffer change receiver dropped");
+                        }
                         Some(())
                     })
                     .ok()?;
@@ -438,6 +442,10 @@ impl CopilotV2 {
         if let Some(proxy_type) = http_or_https_proxy {
             env.insert(proxy_type.to_string(), proxy_url);
             if let Some(true) = no_verify {
+                log::warn!(
+                    "SECURITY WARNING: Disabling TLS certificate verification for Copilot proxy. \
+                     This makes connections vulnerable to man-in-the-middle attacks."
+                );
                 env.insert("NODE_TLS_REJECT_UNAUTHORIZED".to_string(), "0".to_string());
             };
         }
@@ -953,10 +961,18 @@ impl CopilotV2 {
             Err(error) => return Task::ready(Err(error)),
         };
         let lsp = server.lsp.clone();
-        let registered_buffer = server
+        let registered_buffer = match server
             .registered_buffers
             .get_mut(&buffer.entity_id())
-            .unwrap();
+        {
+            Some(buffer) => buffer,
+            None => {
+                return Task::ready(Err(anyhow!(
+                    "Buffer {} not registered",
+                    buffer.entity_id()
+                )))
+            }
+        };
         let snapshot = registered_buffer.report_changes(buffer, cx);
         let buffer = buffer.read(cx);
         let uri = registered_buffer.uri.clone();
@@ -984,7 +1000,7 @@ impl CopilotV2 {
                         insert_spaces: !hard_tabs,
                         relative_path: relative_path.to_string_lossy().into(),
                         position: point_to_lsp(position),
-                        version: version.try_into().unwrap(),
+                        version: version.try_into().context("Failed to convert version to i32")?,
                     },
                 })
                 .await
@@ -1197,7 +1213,7 @@ mod tests {
         let buffer_1 = cx.new(|cx| Buffer::local("Hello", cx));
         let buffer_1_uri: lsp::Uri = format!("buffer://{}", buffer_1.entity_id().as_u64())
             .parse()
-            .unwrap();
+            .expect("Should parse buffer URI in test");
         copilot.update(cx, |copilot, cx| copilot.register_buffer(&buffer_1, cx));
         assert_eq!(
             lsp.receive_notification::<lsp::notification::DidOpenTextDocument>()
@@ -1215,7 +1231,7 @@ mod tests {
         let buffer_2 = cx.new(|cx| Buffer::local("Goodbye", cx));
         let buffer_2_uri: lsp::Uri = format!("buffer://{}", buffer_2.entity_id().as_u64())
             .parse()
-            .unwrap();
+            .expect("Should parse buffer URI in test");
         copilot.update(cx, |copilot, cx| copilot.register_buffer(&buffer_2, cx));
         assert_eq!(
             lsp.receive_notification::<lsp::notification::DidOpenTextDocument>()
@@ -1264,7 +1280,8 @@ mod tests {
                 text_document: lsp::TextDocumentIdentifier::new(buffer_1_uri),
             }
         );
-        let buffer_1_uri = lsp::Uri::from_file_path(path!("/root/child/buffer-1")).unwrap();
+        let buffer_1_uri = lsp::Uri::from_file_path(path!("/root/child/buffer-1"))
+            .expect("Should convert file path to URI in test");
         assert_eq!(
             lsp.receive_notification::<lsp::notification::DidOpenTextDocument>()
                 .await,
@@ -1285,7 +1302,7 @@ mod tests {
         copilot
             .update(cx, |copilot, cx| copilot.sign_out(cx))
             .await
-            .unwrap();
+            .expect("Sign out should succeed in test");
         assert_eq!(
             lsp.receive_notification::<lsp::notification::DidCloseTextDocument>()
                 .await,
@@ -1310,7 +1327,7 @@ mod tests {
         copilot
             .update(cx, |copilot, cx| copilot.sign_in(cx))
             .await
-            .unwrap();
+            .expect("Sign in should succeed in test");
 
         assert_eq!(
             lsp.receive_notification::<lsp::notification::DidOpenTextDocument>()

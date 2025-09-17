@@ -90,6 +90,11 @@ impl EditPredictionProvider for CopilotV2Provider {
         debounce: bool,
         cx: &mut Context<Self>,
     ) {
+        // Cancel any existing refresh task
+        if let Some(pending) = self.pending_refresh.take() {
+            drop(pending); // Cancel by dropping the task
+        }
+
         let copilot = self.copilot.clone();
         self.pending_refresh = Some(cx.spawn(async move |this, cx| {
             if debounce {
@@ -160,6 +165,11 @@ impl EditPredictionProvider for CopilotV2Provider {
 
             cx.notify();
         } else {
+            // Cancel any existing cycling refresh task
+            if let Some(pending) = self.pending_cycling_refresh.take() {
+                drop(pending); // Cancel by dropping the task
+            }
+
             let copilot = self.copilot.clone();
             self.pending_cycling_refresh = Some(cx.spawn(async move |this, cx| {
                 let completions = copilot
@@ -365,7 +375,7 @@ mod tests {
             // the copilot suggestion afterwards.
             editor
                 .confirm_completion(&Default::default(), window, cx)
-                .unwrap()
+                .expect("Should be able to confirm completion in test")
                 .detach();
             assert!(!editor.context_menu_visible());
             assert!(!editor.has_active_edit_prediction());
@@ -763,13 +773,13 @@ mod tests {
                 use gpui::Focusable;
                 window.focus(&editor.focus_handle(cx));
             })
-            .unwrap();
+            .expect("Should update editor in test");
         let copilot_provider = cx.new(|_| CopilotV2Provider::new(copilot));
         editor
             .update(cx, |editor, window, cx| {
                 editor.set_edit_prediction_provider(Some(copilot_provider), window, cx)
             })
-            .unwrap();
+            .expect("Should succeed in test");
 
         handle_copilot_completion_request(
             &copilot_lsp,
@@ -981,13 +991,13 @@ mod tests {
                 project.open_local_buffer(path!("/test/.env"), cx)
             })
             .await
-            .unwrap();
+            .expect("Should succeed in test");
         let public_buffer = project
             .update(cx, |project, cx| {
                 project.open_local_buffer(path!("/test/README.md"), cx)
             })
             .await
-            .unwrap();
+            .expect("Should succeed in test");
 
         let multibuffer = cx.new(|cx| {
             let mut multibuffer = MultiBuffer::new(language::Capability::ReadWrite);
@@ -1010,13 +1020,13 @@ mod tests {
                 use gpui::Focusable;
                 window.focus(&editor.focus_handle(cx))
             })
-            .unwrap();
+            .expect("Should succeed in test");
         let copilot_provider = cx.new(|_| CopilotV2Provider::new(copilot));
         editor
             .update(cx, |editor, window, cx| {
                 editor.set_edit_prediction_provider(Some(copilot_provider), window, cx)
             })
-            .unwrap();
+            .expect("Should succeed in test");
 
         let mut copilot_requests = copilot_lsp
             .set_request_handler::<crate::request::GetCompletions, _, _>(

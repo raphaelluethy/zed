@@ -272,8 +272,14 @@ impl CopilotCodeVerification {
                     .on_click({
                         let verification_uri = data.verification_uri.clone();
                         cx.listener(move |this, _, _window, cx| {
-                            cx.open_url(&verification_uri);
-                            this.connect_clicked = true;
+                            // Validate URL to prevent malicious redirects
+                            if verification_uri.starts_with("https://github.com/login/oauth/") ||
+                               verification_uri.starts_with("https://github.com/login/device/") {
+                                cx.open_url(&verification_uri);
+                                this.connect_clicked = true;
+                            } else {
+                                log::error!("Invalid verification URI: {}", verification_uri);
+                            }
                         })
                     })
                     .full_width()

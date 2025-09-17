@@ -9220,6 +9220,7 @@ impl Editor {
         match provider {
             Some(provider) => match provider.provider.name() {
                 "copilot" => IconName::Copilot,
+                "copilot_v2" => IconName::Copilot,
                 "supermaven" => IconName::Supermaven,
                 _ => IconName::ZedPredict,
             },
