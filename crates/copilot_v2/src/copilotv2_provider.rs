@@ -7,7 +7,7 @@ use project::Project;
 use settings::Settings;
 use std::{path::Path, time::Duration};
 
-pub const COPILOT_V2_DEBOUNCE_TIMEOUT: Duration = Duration::from_millis(75);
+pub const COPILOT_V2_DEBOUNCE_TIMEOUT: Duration = Duration::from_millis(300);
 
 pub struct CopilotV2Provider {
     cycled: bool,
