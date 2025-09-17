@@ -357,6 +357,15 @@ impl Render for EditPredictionButton {
 
                 div().child(popover_menu.into_any_element())
             }
+            EditPredictionProvider::CopilotV2 => {
+                // For now, show a simple CopilotV2 indicator
+                // TODO: Implement full CopilotV2 status UI similar to Copilot
+                div().child(
+                    IconButton::new("copilot-v2", IconName::Copilot)
+                        .tooltip(|window, cx| Tooltip::text("CopilotV2 (Preview)")(window, cx))
+                        .icon_color(Color::Accent)
+                )
+            }
         }
     }
 }
@@ -491,6 +500,7 @@ impl EditPredictionButton {
             provider,
             EditPredictionProvider::Zed
                 | EditPredictionProvider::Copilot
+                | EditPredictionProvider::CopilotV2
                 | EditPredictionProvider::Supermaven
         ) {
             menu = menu

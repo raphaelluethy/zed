@@ -1,6 +1,7 @@
 use client::{Client, UserStore};
 use collections::HashMap;
 use copilot::{Copilot, CopilotCompletionProvider};
+use copilot_v2::{CopilotV2Global, CopilotV2Provider};
 use editor::Editor;
 use gpui::{AnyWindowHandle, App, AppContext as _, Context, Entity, WeakEntity};
 use language::language_settings::{EditPredictionProvider, all_language_settings};
@@ -179,6 +180,26 @@ fn assign_edit_prediction_provider(
                 }
                 let provider = cx.new(|_| CopilotCompletionProvider::new(copilot));
                 editor.set_edit_prediction_provider(Some(provider), window, cx);
+            }
+        }
+        EditPredictionProvider::CopilotV2 => {
+            log::info!("Edit Prediction Registry: Assigning CopilotV2 provider");
+            if let Some(copilotv2_global) = CopilotV2Global::global(cx) {
+                log::info!("Edit Prediction Registry: Found CopilotV2 global instance");
+                let copilotv2 = copilotv2_global.copilotv2.clone();
+                if let Some(buffer) = singleton_buffer
+                    && buffer.read(cx).file().is_some()
+                {
+                    log::info!("Edit Prediction Registry: Registering buffer with CopilotV2");
+                    copilotv2.update(cx, |copilotv2, cx| {
+                        let _ = copilotv2.register_buffer(&buffer, cx);
+                    });
+                }
+                let provider = cx.new(|_| CopilotV2Provider::new(copilotv2));
+                editor.set_edit_prediction_provider(Some(provider), window, cx);
+                log::info!("Edit Prediction Registry: CopilotV2 provider assigned successfully");
+            } else {
+                log::warn!("Edit Prediction Registry: CopilotV2 global instance not found");
             }
         }
         EditPredictionProvider::Supermaven => {
