@@ -5059,6 +5059,7 @@ dependencies = [
  "client",
  "cloud_llm_client",
  "copilot",
+ "copilot_v2",
  "edit_prediction",
  "editor",
  "feature_flags",

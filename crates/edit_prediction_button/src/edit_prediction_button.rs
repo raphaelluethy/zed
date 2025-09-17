@@ -2,6 +2,7 @@ use anyhow::Result;
 use client::{UserStore, zed_urls};
 use cloud_llm_client::UsageLimit;
 use copilot::{Copilot, Status};
+use copilot_v2::{CopilotV2, CopilotV2Status};
 use editor::{Editor, SelectionEffects, actions::ShowEditPrediction, scroll::Autoscroll};
 use feature_flags::{FeatureFlagAppExt, PredictEditsRateCompletionsFeatureFlag};
 use fs::Fs;
@@ -46,6 +47,7 @@ const COPILOT_SETTINGS_URL: &str = "https://github.com/settings/copilot";
 const PRIVACY_DOCS: &str = "https://zed.dev/docs/ai/privacy-and-security";
 
 struct CopilotErrorToast;
+struct CopilotV2ErrorToast;
 
 pub struct EditPredictionButton {
     editor_subscription: Option<(Subscription, usize)>,
@@ -358,13 +360,78 @@ impl Render for EditPredictionButton {
                 div().child(popover_menu.into_any_element())
             }
             EditPredictionProvider::CopilotV2 => {
-                // For now, show a simple CopilotV2 indicator
-                // TODO: Implement full CopilotV2 status UI similar to Copilot
-                div().child(
-                    IconButton::new("copilot-v2", IconName::Copilot)
-                        .tooltip(|window, cx| Tooltip::text("CopilotV2 (Preview)")(window, cx))
-                        .icon_color(Color::Accent)
-                )
+                let Some(copilot_v2) = CopilotV2::global(cx) else {
+                    return div();
+                };
+
+                let status = copilot_v2.read(cx).status();
+                let enabled = self.editor_enabled.unwrap_or(false);
+
+                let icon = match &status {
+                    CopilotV2Status::Error(_) => IconName::CopilotError,
+                    CopilotV2Status::Authorized => {
+                        if enabled {
+                            IconName::Copilot
+                        } else {
+                            IconName::CopilotDisabled
+                        }
+                    }
+                    _ => IconName::CopilotInit,
+                };
+
+                if let CopilotV2Status::Error(error) = &status {
+                    let error = error.clone();
+                    return div().child(
+                        IconButton::new("copilot-v2-error", icon)
+                            .icon_size(IconSize::Small)
+                            .on_click(cx.listener(move |_, _, window, cx| {
+                                if let Some(workspace) = window.root::<Workspace>().flatten() {
+                                    workspace.update(cx, |workspace, cx| {
+                                        workspace.show_toast(
+                                            Toast::new(
+                                                NotificationId::unique::<CopilotV2ErrorToast>(),
+                                                format!("Copilot V2 can't be started: {}", error),
+                                            )
+                                            .on_click(
+                                                "Reinstall Copilot V2",
+                                                |window, cx| {
+                                                    copilot_v2::reinstall_and_sign_in(window, cx)
+                                                },
+                                            ),
+                                            cx,
+                                        );
+                                    });
+                                }
+                            }))
+                            .tooltip(|window, cx| {
+                                Tooltip::for_action("Copilot V2", &ToggleMenu, window, cx)
+                            }),
+                    );
+                }
+
+                let status_for_menu = status;
+                let this = cx.entity();
+
+                let mut popover_menu = PopoverMenu::new("copilot-v2")
+                    .menu(move |window, cx| {
+                        Some(match status_for_menu.clone() {
+                            CopilotV2Status::Authorized => this.update(cx, |this, cx| {
+                                this.build_copilot_v2_context_menu(window, cx)
+                            }),
+                            _ => this.update(cx, |this, cx| {
+                                this.build_copilot_v2_start_menu(window, cx)
+                            }),
+                        })
+                    })
+                    .anchor(Corner::BottomRight)
+                    .with_handle(self.popover_menu_handle.clone());
+
+                popover_menu = popover_menu.trigger_with_tooltip(
+                    IconButton::new("copilot-v2-icon", icon).icon_size(IconSize::Small),
+                    |window, cx| Tooltip::for_action("Copilot V2", &ToggleMenu, window, cx),
+                );
+
+                div().child(popover_menu.into_any_element())
             }
         }
     }
@@ -379,6 +446,9 @@ impl EditPredictionButton {
     ) -> Self {
         if let Some(copilot) = Copilot::global(cx) {
             cx.observe(&copilot, |_, _, cx| cx.notify()).detach()
+        }
+        if let Some(copilot_v2) = CopilotV2::global(cx) {
+            cx.observe(&copilot_v2, |_, _, cx| cx.notify()).detach()
         }
 
         cx.observe_global::<SettingsStore>(move |_, cx| cx.notify())
@@ -415,6 +485,39 @@ impl EditPredictionButton {
                     let fs = fs.clone();
                     move |_window, cx| {
                         set_completion_provider(fs.clone(), cx, EditPredictionProvider::Zed)
+                    }
+                })
+        })
+    }
+
+    pub fn build_copilot_v2_start_menu(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<ContextMenu> {
+        let fs = self.fs.clone();
+        ContextMenu::build(window, cx, |menu, _, _| {
+            menu.entry("Sign In to Copilot V2", None, copilot_v2::initiate_sign_in)
+                .entry(
+                    "Reinstall Copilot V2",
+                    None,
+                    copilot_v2::reinstall_and_sign_in,
+                )
+                .entry("Disable Copilot V2", None, {
+                    let fs = fs.clone();
+                    move |_window, cx| hide_copilot(fs.clone(), cx)
+                })
+                .separator()
+                .entry("Use Zed AI", None, {
+                    let fs = fs.clone();
+                    move |_window, cx| {
+                        set_completion_provider(fs.clone(), cx, EditPredictionProvider::Zed)
+                    }
+                })
+                .entry("Use GitHub Copilot", None, {
+                    let fs = fs.clone();
+                    move |_window, cx| {
+                        set_completion_provider(fs.clone(), cx, EditPredictionProvider::Copilot)
                     }
                 })
         })
@@ -713,6 +816,34 @@ impl EditPredictionButton {
                     .boxed_clone(),
                 )
                 .action("Sign Out", copilot::SignOut.boxed_clone())
+        })
+    }
+
+    fn build_copilot_v2_context_menu(
+        &self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<ContextMenu> {
+        ContextMenu::build(window, cx, |menu, window, cx| {
+            self.build_language_settings_menu(menu, window, cx)
+                .separator()
+                .entry("Use Zed AI instead", None, {
+                    let fs = self.fs.clone();
+                    move |_window, cx| {
+                        set_completion_provider(fs.clone(), cx, EditPredictionProvider::Zed)
+                    }
+                })
+                .entry("Use GitHub Copilot", None, {
+                    let fs = self.fs.clone();
+                    move |_window, cx| {
+                        set_completion_provider(fs.clone(), cx, EditPredictionProvider::Copilot)
+                    }
+                })
+                .separator()
+                .entry("Go to Copilot Settings", None, |_window, cx| {
+                    cx.open_url(COPILOT_SETTINGS_URL)
+                })
+                .action("Sign Out", copilot_v2::SignOut.boxed_clone())
         })
     }
 
