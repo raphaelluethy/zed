@@ -46,7 +46,7 @@ pub use copilotv2_provider::CopilotV2Provider;
 pub use sign_in::{CopilotCodeVerification, initiate_sign_in, reinstall_and_sign_in};
 
 actions!(
-    copilot,
+    copilot_v2,
     [
         /// Requests a code completion suggestion from Copilot V2.
         Suggest,
@@ -284,11 +284,12 @@ impl RegisteredBuffer {
     }
 }
 
-#[derive(Debug)]
 pub struct Completion {
     pub uuid: String,
     pub range: Range<Anchor>,
     pub text: String,
+    pub display_text: Option<String>,
+    pub snapshot: BufferSnapshot,
 }
 
 pub struct CopilotV2 {
@@ -333,9 +334,7 @@ impl CopilotV2 {
 
     pub fn set_global(copilot: Entity<Self>, cx: &mut App) {
         cx.set_global(GlobalCopilot(copilot.clone()));
-        cx.set_global(CopilotV2Global {
-            copilotv2: copilot,
-        });
+        cx.set_global(CopilotV2Global { copilotv2: copilot });
     }
 
     fn start(
@@ -606,7 +605,9 @@ impl CopilotV2 {
                                     request::SignInInitiateResult::AlreadySignedIn { user } => {
                                         Ok(request::SignInStatus::Ok { user: Some(user) })
                                     }
-                                    request::SignInInitiateResult::PromptUserDeviceFlow(flow) => {
+                                    request::SignInInitiateResult::PromptUserDeviceFlow {
+                                        flow,
+                                    } => {
                                         this.update(cx, |this, cx| {
                                             if let CopilotV2Server::Running(
                                                 RunningCopilotV2Server {
@@ -1001,6 +1002,8 @@ impl CopilotV2 {
                         uuid: completion.uuid,
                         range: snapshot.anchor_before(start)..snapshot.anchor_after(end),
                         text: completion.text,
+                        display_text: Some(completion.display_text),
+                        snapshot: snapshot.clone(),
                     }
                 })
                 .collect();

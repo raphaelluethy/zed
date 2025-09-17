@@ -1,8 +1,8 @@
 use crate::{Completion, CopilotV2};
 use anyhow::Result;
 use edit_prediction::{Direction, EditPrediction, EditPredictionProvider};
-use gpui::{App, Context, Entity, EntityId, Task};
-use language::{Buffer, OffsetRangeExt, ToOffset, language_settings::AllLanguageSettings};
+use gpui::{App, Context, Entity, EntityId, SharedString, Task};
+use language::{Buffer, OffsetRangeExt, language_settings::AllLanguageSettings};
 use project::Project;
 use settings::Settings;
 use std::{path::Path, time::Duration};
@@ -216,48 +216,52 @@ impl EditPredictionProvider for CopilotV2Provider {
     fn suggest(
         &mut self,
         buffer: &Entity<Buffer>,
-        cursor_position: language::Anchor,
+        _cursor_position: language::Anchor,
         cx: &mut Context<Self>,
     ) -> Option<EditPrediction> {
         let buffer_id = buffer.entity_id();
-        let buffer = buffer.read(cx);
+        let buffer_read = buffer.read(cx);
         let completion = self.active_completion()?;
+
         if Some(buffer_id) != self.buffer_id
-            || !completion.range.start.is_valid(buffer)
-            || !completion.range.end.is_valid(buffer)
+            || !completion.range.start.is_valid(&buffer_read)
+            || !completion.range.end.is_valid(&buffer_read)
         {
             return None;
         }
 
-        let mut completion_range = completion.range.to_offset(buffer);
+        let mut completion_range = completion.range.to_offset(&buffer_read);
+
         let prefix_len = common_prefix(
-            buffer.chars_for_range(completion_range.clone()),
+            buffer_read.chars_for_range(completion_range.clone()),
             completion.text.chars(),
         );
         completion_range.start += prefix_len;
+
         let suffix_len = common_prefix(
-            buffer.reversed_chars_for_range(completion_range.clone()),
+            buffer_read.reversed_chars_for_range(completion_range.clone()),
             completion.text[prefix_len..].chars().rev(),
         );
         completion_range.end = completion_range.end.saturating_sub(suffix_len);
 
-        if completion_range.is_empty()
-            && completion_range.start == cursor_position.to_offset(buffer)
-        {
-            let completion_text = &completion.text[prefix_len..completion.text.len() - suffix_len];
-            if completion_text.trim().is_empty() {
-                None
-            } else {
-                let position = cursor_position.bias_right(buffer);
-                Some(EditPrediction {
-                    id: None,
-                    edits: vec![(position..position, completion_text.into())],
-                    edit_preview: None,
-                })
-            }
-        } else {
-            None
+        if completion_range.end < completion_range.start {
+            return None;
         }
+
+        let edit_text = &completion.text[prefix_len..completion.text.len() - suffix_len];
+        if edit_text.trim().is_empty() && completion_range.is_empty() {
+            return None;
+        }
+
+        let start_anchor = buffer_read.anchor_before(completion_range.start);
+        let end_anchor = buffer_read.anchor_before(completion_range.end);
+        let edits = vec![(start_anchor..end_anchor, edit_text.to_string())];
+
+        Some(EditPrediction {
+            id: Some(SharedString::from(completion.uuid.clone())),
+            edits,
+            edit_preview: None,
+        })
     }
 }
 

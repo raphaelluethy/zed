@@ -1,5 +1,4 @@
-use std::cmp;
-
+use crate::Completion;
 use gpui::{
     AnyElement, App, BorderStyle, Bounds, Corners, Edges, HighlightStyle, Hsla, StyledText,
     TextLayout, TextStyle, point, prelude::*, quad, size,
@@ -8,6 +7,7 @@ use settings::Settings;
 use theme::ThemeSettings;
 use ui::prelude::*;
 
+/// Renders a Copilot completion preview in menus and popovers.
 pub struct CompletionDiffElement {
     element: AnyElement,
     text_layout: TextLayout,
@@ -15,30 +15,23 @@ pub struct CompletionDiffElement {
 }
 
 impl CompletionDiffElement {
-    pub fn new(prediction_text: &str, cx: &App) -> Self {
-        log::debug!(
-            "CopilotV2 UI: Creating CompletionDiffElement with text: '{}'",
-            prediction_text
-        );
+    pub fn new(completion: &Completion, cx: &App) -> Self {
+        let display_text = completion
+            .display_text
+            .as_deref()
+            .unwrap_or(&completion.text);
 
-        // For now, create a simple styled text element for mock completions
-        // In the future, this would process actual edit diffs like Zeta does
-
-        let mut diff_highlights = Vec::new();
-
-        // Add green background for the entire completion text to show it's new
-        if !prediction_text.is_empty() {
-            diff_highlights.push((
-                0..prediction_text.len(),
+        let mut highlights = Vec::new();
+        if !display_text.is_empty() {
+            highlights.push((
+                0..display_text.len(),
                 HighlightStyle {
                     background_color: Some(cx.theme().status().created_background),
-                    ..Default::default()
+                    ..HighlightStyle::default()
                 },
             ));
-            log::debug!("CopilotV2 UI: Added creation highlight for entire text");
         }
 
-        // Apply theme and styling
         let settings = ThemeSettings::get_global(cx).clone();
         let text_style = TextStyle {
             color: cx.theme().colors().editor_foreground,
@@ -52,16 +45,14 @@ impl CompletionDiffElement {
             ..Default::default()
         };
 
-        let element = StyledText::new(prediction_text.to_string())
-            .with_default_highlights(&text_style, diff_highlights);
+        let element = StyledText::new(display_text.to_string())
+            .with_default_highlights(&text_style, highlights);
         let text_layout = element.layout().clone();
-
-        log::debug!("CopilotV2 UI: CompletionDiffElement created successfully");
 
         CompletionDiffElement {
             element: element.into_any_element(),
             text_layout,
-            cursor_offset: 0, // For mock implementations, start at beginning
+            cursor_offset: display_text.len(),
         }
     }
 }
@@ -118,9 +109,6 @@ impl Element for CompletionDiffElement {
         window: &mut Window,
         cx: &mut App,
     ) {
-        log::debug!("CopilotV2 UI: Painting CompletionDiffElement");
-
-        // Paint active line background and cursor
         if let Some(position) = self.text_layout.position_for_index(self.cursor_offset) {
             let bounds = self.text_layout.bounds();
             let line_height = self.text_layout.line_height();
@@ -128,12 +116,10 @@ impl Element for CompletionDiffElement {
                 .text_layout
                 .line_layout_for_index(self.cursor_offset)
                 .map_or(bounds.size.width, |layout| layout.width());
-
-            // Paint active line background
             window.paint_quad(quad(
                 Bounds::new(
                     point(bounds.origin.x, position.y),
-                    size(cmp::max(bounds.size.width, line_width), line_height),
+                    size(bounds.size.width.max(line_width), line_height),
                 ),
                 Corners::default(),
                 cx.theme().colors().editor_active_line_background,
@@ -141,30 +127,8 @@ impl Element for CompletionDiffElement {
                 Hsla::transparent_black(),
                 BorderStyle::default(),
             ));
-
-            log::debug!(
-                "CopilotV2 UI: Painted active line background at {:?}",
-                position
-            );
-
-            // Paint the text with diff highlights
-            self.element.paint(window, cx);
-
-            // Paint cursor
-            window.paint_quad(quad(
-                Bounds::new(position, size(px(2.), line_height)),
-                Corners::default(),
-                cx.theme().players().local().cursor,
-                Edges::default(),
-                Hsla::transparent_black(),
-                BorderStyle::default(),
-            ));
-
-            log::debug!("CopilotV2 UI: Painted cursor at {:?}", position);
-        } else {
-            // Just paint the text if we can't determine cursor position
-            self.element.paint(window, cx);
-            log::debug!("CopilotV2 UI: Painted text without cursor (position not found)");
         }
+
+        self.element.paint(window, cx);
     }
 }

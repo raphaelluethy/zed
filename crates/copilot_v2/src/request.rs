@@ -23,7 +23,7 @@ pub struct SignInInitiateParams {}
 #[serde(tag = "status")]
 pub enum SignInInitiateResult {
     AlreadySignedIn { user: String },
-    PromptUserDeviceFlow(PromptUserDeviceFlow),
+    PromptUserDeviceFlow { flow: PromptUserDeviceFlow },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
