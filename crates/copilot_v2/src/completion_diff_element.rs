@@ -16,7 +16,10 @@ pub struct CompletionDiffElement {
 
 impl CompletionDiffElement {
     pub fn new(prediction_text: &str, cx: &App) -> Self {
-        log::debug!("CopilotV2 UI: Creating CompletionDiffElement with text: '{}'", prediction_text);
+        log::debug!(
+            "CopilotV2 UI: Creating CompletionDiffElement with text: '{}'",
+            prediction_text
+        );
 
         // For now, create a simple styled text element for mock completions
         // In the future, this would process actual edit diffs like Zeta does
@@ -49,7 +52,8 @@ impl CompletionDiffElement {
             ..Default::default()
         };
 
-        let element = StyledText::new(prediction_text.to_string()).with_default_highlights(&text_style, diff_highlights);
+        let element = StyledText::new(prediction_text.to_string())
+            .with_default_highlights(&text_style, diff_highlights);
         let text_layout = element.layout().clone();
 
         log::debug!("CopilotV2 UI: CompletionDiffElement created successfully");
@@ -138,7 +142,10 @@ impl Element for CompletionDiffElement {
                 BorderStyle::default(),
             ));
 
-            log::debug!("CopilotV2 UI: Painted active line background at {:?}", position);
+            log::debug!(
+                "CopilotV2 UI: Painted active line background at {:?}",
+                position
+            );
 
             // Paint the text with diff highlights
             self.element.paint(window, cx);

@@ -537,6 +537,7 @@ pub fn main() {
         );
         command_palette::init(cx);
         let copilot_language_server_id = app_state.languages.next_language_server_id();
+        let copilot_v2_language_server_id = app_state.languages.next_language_server_id();
         copilot::init(
             copilot_language_server_id,
             app_state.fs.clone(),
@@ -545,8 +546,10 @@ pub fn main() {
             cx,
         );
         copilot_v2::init(
+            copilot_v2_language_server_id,
+            app_state.fs.clone(),
             app_state.client.http_client(),
-            app_state.node_runtime.clone().into(),
+            app_state.node_runtime.clone(),
             cx,
         );
         supermaven::init(app_state.client.clone(), cx);
