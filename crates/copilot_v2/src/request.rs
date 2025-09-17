@@ -1,41 +1,39 @@
-use anyhow::Result;
-use lsp::{request::Request, LanguageServer, Position, Range};
 use serde::{Deserialize, Serialize};
-
-// Authentication requests
 
 pub enum CheckStatus {}
 
-#[derive(Serialize, Deserialize)]
-pub struct CheckStatusParams {}
-
-#[derive(Serialize, Deserialize)]
-pub struct CheckStatusResult {
-    pub status: String,
-    pub user: Option<String>,
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckStatusParams {
+    pub local_checks_only: bool,
 }
 
-impl Request for CheckStatus {
+impl lsp::request::Request for CheckStatus {
     type Params = CheckStatusParams;
-    type Result = CheckStatusResult;
+    type Result = SignInStatus;
     const METHOD: &'static str = "checkStatus";
 }
 
 pub enum SignInInitiate {}
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SignInInitiateParams {}
 
-#[derive(Serialize, Deserialize)]
-pub struct SignInInitiateResult {
-    pub status: String,
-    pub user_code: String,
-    pub verification_uri: String,
-    pub expires_in: Option<u64>,
-    pub interval: Option<u64>,
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "status")]
+pub enum SignInInitiateResult {
+    AlreadySignedIn { user: String },
+    PromptUserDeviceFlow(PromptUserDeviceFlow),
 }
 
-impl Request for SignInInitiate {
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptUserDeviceFlow {
+    pub user_code: String,
+    pub verification_uri: String,
+}
+
+impl lsp::request::Request for SignInInitiate {
     type Params = SignInInitiateParams;
     type Result = SignInInitiateResult;
     const METHOD: &'static str = "signInInitiate";
@@ -43,81 +41,90 @@ impl Request for SignInInitiate {
 
 pub enum SignInConfirm {}
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignInConfirmParams {
     pub user_code: String,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct SignInConfirmResult {
-    pub status: String,
-    pub user: String,
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "status")]
+pub enum SignInStatus {
+    #[serde(rename = "OK")]
+    Ok {
+        user: Option<String>,
+    },
+    MaybeOk {
+        user: String,
+    },
+    AlreadySignedIn {
+        user: String,
+    },
+    NotAuthorized {
+        user: String,
+    },
+    NotSignedIn,
 }
 
-impl Request for SignInConfirm {
+impl lsp::request::Request for SignInConfirm {
     type Params = SignInConfirmParams;
-    type Result = SignInConfirmResult;
+    type Result = SignInStatus;
     const METHOD: &'static str = "signInConfirm";
 }
 
 pub enum SignOut {}
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignOutParams {}
 
-#[derive(Serialize, Deserialize)]
-pub struct SignOutResult {
-    pub status: String,
-}
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignOutResult {}
 
-impl Request for SignOut {
+impl lsp::request::Request for SignOut {
     type Params = SignOutParams;
     type Result = SignOutResult;
     const METHOD: &'static str = "signOut";
 }
 
-// Completion requests
-
 pub enum GetCompletions {}
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetCompletionsParams {
     pub doc: GetCompletionsDocument,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetCompletionsDocument {
-    pub uri: String,
-    pub version: i32,
-    pub position: Position,
-    pub insert_spaces: bool,
     pub tab_size: u32,
-    pub language_id: String,
+    pub indent_size: u32,
+    pub insert_spaces: bool,
+    pub uri: lsp::Uri,
+    pub relative_path: String,
+    pub position: lsp::Position,
+    pub version: usize,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Completion {
-    pub text: String,
-    pub range: Range,
-    pub display_text: Option<String>,
-}
-
-impl Default for Completion {
-    fn default() -> Self {
-        Self {
-            text: String::new(),
-            range: Range::new(Position::new(0, 0), Position::new(0, 0)),
-            display_text: None,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetCompletionsResult {
     pub completions: Vec<Completion>,
 }
 
-impl Request for GetCompletions {
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Completion {
+    pub text: String,
+    pub position: lsp::Position,
+    pub uuid: String,
+    pub range: lsp::Range,
+    pub display_text: String,
+}
+
+impl lsp::request::Request for GetCompletions {
     type Params = GetCompletionsParams;
     type Result = GetCompletionsResult;
     const METHOD: &'static str = "getCompletions";
@@ -125,182 +132,94 @@ impl Request for GetCompletions {
 
 pub enum GetCompletionsCycling {}
 
-#[derive(Serialize, Deserialize)]
-pub struct GetCompletionsCyclingParams {
-    pub doc: GetCompletionsDocument,
-}
-
-impl Request for GetCompletionsCycling {
-    type Params = GetCompletionsCyclingParams;
+impl lsp::request::Request for GetCompletionsCycling {
+    type Params = GetCompletionsParams;
     type Result = GetCompletionsResult;
     const METHOD: &'static str = "getCompletionsCycling";
 }
 
-// Feedback requests
+pub enum LogMessage {}
 
-pub enum NotifyAccepted {}
-
-#[derive(Serialize, Deserialize)]
-pub struct NotifyAcceptedParams {
-    pub uuid: String,
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogMessageParams {
+    pub level: u8,
+    pub message: String,
+    pub metadata_str: String,
+    pub extra: Vec<String>,
 }
 
-impl Request for NotifyAccepted {
-    type Params = NotifyAcceptedParams;
-    type Result = ();
-    const METHOD: &'static str = "notifyAccepted";
+impl lsp::notification::Notification for LogMessage {
+    type Params = LogMessageParams;
+    const METHOD: &'static str = "LogMessage";
 }
 
-pub enum NotifyRejected {}
+pub enum StatusNotification {}
 
-#[derive(Serialize, Deserialize)]
-pub struct NotifyRejectedParams {
-    pub uuids: Vec<String>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StatusNotificationParams {
+    pub message: String,
+    pub status: String, // One of Normal/InProgress
 }
 
-impl Request for NotifyRejected {
-    type Params = NotifyRejectedParams;
-    type Result = ();
-    const METHOD: &'static str = "notifyRejected";
+impl lsp::notification::Notification for StatusNotification {
+    type Params = StatusNotificationParams;
+    const METHOD: &'static str = "statusNotification";
 }
-
-// Configuration requests
 
 pub enum SetEditorInfo {}
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetEditorInfoParams {
     pub editor_info: EditorInfo,
+    pub editor_plugin_info: EditorPluginInfo,
 }
 
-#[derive(Serialize, Deserialize)]
+impl lsp::request::Request for SetEditorInfo {
+    type Params = SetEditorInfoParams;
+    type Result = String;
+    const METHOD: &'static str = "setEditorInfo";
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EditorInfo {
     pub name: String,
     pub version: String,
 }
 
-impl Request for SetEditorInfo {
-    type Params = SetEditorInfoParams;
-    type Result = ();
-    const METHOD: &'static str = "setEditorInfo";
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditorPluginInfo {
+    pub name: String,
+    pub version: String,
 }
 
-// Helper functions for LSP communication with debug logging
+pub enum NotifyAccepted {}
 
-pub async fn check_status(server: &LanguageServer) -> Result<CheckStatusResult> {
-    log::debug!("CopilotV2 Request: Checking authentication status");
-
-    let result = server.request::<CheckStatus>(CheckStatusParams {}).await
-        .into_response()?;
-
-    log::debug!("CopilotV2 Response: CheckStatus = {:?}", result.status);
-    if let Some(ref user) = result.user {
-        log::debug!("CopilotV2: Authenticated user: {}", user);
-    }
-
-    Ok(result)
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotifyAcceptedParams {
+    pub uuid: String,
 }
 
-pub async fn sign_in_initiate(server: &LanguageServer) -> Result<SignInInitiateResult> {
-    log::debug!("CopilotV2 Request: Initiating sign-in");
-
-    let result = server.request::<SignInInitiate>(SignInInitiateParams {}).await
-        .into_response()?;
-
-    log::debug!("CopilotV2 Response: SignInInitiate status = {}", result.status);
-    log::debug!("CopilotV2: Device code = {}", result.user_code);
-    log::debug!("CopilotV2: Verification URI = {}", result.verification_uri);
-
-    Ok(result)
+impl lsp::request::Request for NotifyAccepted {
+    type Params = NotifyAcceptedParams;
+    type Result = String;
+    const METHOD: &'static str = "notifyAccepted";
 }
 
-pub async fn sign_in_confirm(server: &LanguageServer, user_code: String) -> Result<SignInConfirmResult> {
-    log::debug!("CopilotV2 Request: Confirming sign-in with user code: {}", user_code);
+pub enum NotifyRejected {}
 
-    let result = server.request::<SignInConfirm>(SignInConfirmParams { user_code }).await
-        .into_response()?;
-
-    log::debug!("CopilotV2 Response: SignInConfirm status = {}", result.status);
-    log::debug!("CopilotV2: Authenticated user = {}", result.user);
-
-    Ok(result)
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NotifyRejectedParams {
+    pub uuids: Vec<String>,
 }
 
-pub async fn sign_out(server: &LanguageServer) -> Result<SignOutResult> {
-    log::debug!("CopilotV2 Request: Signing out");
-
-    let result = server.request::<SignOut>(SignOutParams {}).await
-        .into_response()?;
-
-    log::debug!("CopilotV2 Response: SignOut status = {}", result.status);
-
-    Ok(result)
-}
-
-pub async fn get_completions(
-    server: &LanguageServer,
-    doc: GetCompletionsDocument,
-) -> Result<GetCompletionsResult> {
-    log::debug!("CopilotV2 Request: Getting completions for {} at {:?}", doc.uri, doc.position);
-
-    let result = server.request::<GetCompletions>(GetCompletionsParams { doc }).await
-        .into_response()?;
-
-    log::debug!("CopilotV2 Response: Received {} completions", result.completions.len());
-    for (i, completion) in result.completions.iter().enumerate() {
-        log::debug!("CopilotV2: Completion {}: '{}' at {:?}", i, completion.text, completion.range);
-    }
-
-    Ok(result)
-}
-
-pub async fn get_completions_cycling(
-    server: &LanguageServer,
-    doc: GetCompletionsDocument,
-) -> Result<GetCompletionsResult> {
-    log::debug!("CopilotV2 Request: Getting cycling completions for {} at {:?}", doc.uri, doc.position);
-
-    let result = server.request::<GetCompletionsCycling>(GetCompletionsCyclingParams { doc }).await
-        .into_response()?;
-
-    log::debug!("CopilotV2 Response: Received {} cycling completions", result.completions.len());
-    for (i, completion) in result.completions.iter().enumerate() {
-        log::debug!("CopilotV2: Cycling completion {}: '{}' at {:?}", i, completion.text, completion.range);
-    }
-
-    Ok(result)
-}
-
-pub async fn notify_accepted(server: &LanguageServer, uuid: String) -> Result<()> {
-    log::debug!("CopilotV2 Request: Notifying completion accepted: {}", uuid);
-
-    server.request::<NotifyAccepted>(NotifyAcceptedParams { uuid }).await
-        .into_response()?;
-
-    log::debug!("CopilotV2 Response: Acceptance notification sent");
-
-    Ok(())
-}
-
-pub async fn notify_rejected(server: &LanguageServer, uuids: Vec<String>) -> Result<()> {
-    log::debug!("CopilotV2 Request: Notifying completions rejected: {:?}", uuids);
-
-    server.request::<NotifyRejected>(NotifyRejectedParams { uuids }).await
-        .into_response()?;
-
-    log::debug!("CopilotV2 Response: Rejection notification sent");
-
-    Ok(())
-}
-
-pub async fn set_editor_info(server: &LanguageServer, name: String, version: String) -> Result<()> {
-    log::debug!("CopilotV2 Request: Setting editor info: {} v{}", name, version);
-
-    let editor_info = EditorInfo { name, version };
-    server.request::<SetEditorInfo>(SetEditorInfoParams { editor_info }).await
-        .into_response()?;
-
-    log::debug!("CopilotV2 Response: Editor info set");
-
-    Ok(())
+impl lsp::request::Request for NotifyRejected {
+    type Params = NotifyRejectedParams;
+    type Result = String;
+    const METHOD: &'static str = "notifyRejected";
 }
