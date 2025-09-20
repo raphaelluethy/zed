@@ -6,6 +6,7 @@ use gpui::{
 };
 use std::time::Duration;
 use ui::{Button, Label, Vector, VectorName, prelude::*};
+use url::Url;
 use util::ResultExt as _;
 use workspace::notifications::NotificationId;
 use workspace::{ModalView, Toast, Workspace};
@@ -273,8 +274,7 @@ impl CopilotCodeVerification {
                         let verification_uri = data.verification_uri.clone();
                         cx.listener(move |this, _, _window, cx| {
                             // Validate URL to prevent malicious redirects
-                            if verification_uri.starts_with("https://github.com/login/oauth/") ||
-                               verification_uri.starts_with("https://github.com/login/device/") {
+                            if is_valid_github_verification_uri(&verification_uri) {
                                 cx.open_url(&verification_uri);
                                 this.connect_clicked = true;
                             } else {
@@ -340,6 +340,23 @@ impl CopilotCodeVerification {
 
         h_flex().justify_center().child(loading_icon)
     }
+}
+
+fn is_valid_github_verification_uri(verification_uri: &str) -> bool {
+    if verification_uri.starts_with("https://github.com/login/oauth/") {
+        return true;
+    }
+
+    let Ok(url) = Url::parse(verification_uri) else {
+        return false;
+    };
+
+    if url.scheme() != "https" || url.host_str() != Some("github.com") {
+        return false;
+    }
+
+    let path = url.path();
+    path == "/login/device" || path.starts_with("/login/device/")
 }
 
 impl Render for CopilotCodeVerification {

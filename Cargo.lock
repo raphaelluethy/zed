@@ -3705,6 +3705,7 @@ dependencies = [
  "task",
  "theme",
  "ui",
+ "url",
  "util",
  "workspace",
  "workspace-hack",
