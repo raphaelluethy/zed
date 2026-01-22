@@ -242,7 +242,7 @@ struct SplitDiffFeatureFlag;
 impl FeatureFlag for SplitDiffFeatureFlag {
     const NAME: &'static str = "split-diff";
 
-    fn enabled_for_staff() -> bool {
+    fn enabled_for_all() -> bool {
         true
     }
 }

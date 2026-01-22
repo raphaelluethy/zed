@@ -105,6 +105,10 @@ pub struct SweepFeatureFlag;
 
 impl FeatureFlag for SweepFeatureFlag {
     const NAME: &str = "sweep-ai";
+
+    fn enabled_for_all() -> bool {
+        true
+    }
 }
 
 pub struct MercuryFeatureFlag;

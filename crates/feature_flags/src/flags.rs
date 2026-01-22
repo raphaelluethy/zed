@@ -4,6 +4,10 @@ pub struct NotebookFeatureFlag;
 
 impl FeatureFlag for NotebookFeatureFlag {
     const NAME: &'static str = "notebooks";
+
+    fn enabled_for_all() -> bool {
+        true
+    }
 }
 
 pub struct PanicFeatureFlag;
@@ -16,6 +20,10 @@ pub struct AgentV2FeatureFlag;
 
 impl FeatureFlag for AgentV2FeatureFlag {
     const NAME: &'static str = "agent-v2";
+
+    fn enabled_for_all() -> bool {
+        true
+    }
 }
 
 pub struct AcpBetaFeatureFlag;
@@ -28,6 +36,10 @@ pub struct UserSlashCommandsFeatureFlag;
 
 impl FeatureFlag for UserSlashCommandsFeatureFlag {
     const NAME: &'static str = "slash-commands";
+
+    fn enabled_for_all() -> bool {
+        true
+    }
 }
 
 pub struct ToolPermissionsFeatureFlag;
@@ -51,7 +63,7 @@ pub struct SubagentsFeatureFlag;
 impl FeatureFlag for SubagentsFeatureFlag {
     const NAME: &'static str = "subagents";
 
-    fn enabled_for_staff() -> bool {
+    fn enabled_for_all() -> bool {
         true
     }
 }
