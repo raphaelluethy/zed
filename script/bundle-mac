@@ -82,7 +82,9 @@ else
 fi
 
 # Generate the licenses first, so they can be baked into the binaries
-script/generate-licenses
+if [ ! -f "assets/licenses.md" ] || [ "Cargo.lock" -nt "assets/licenses.md" ]; then
+    script/generate-licenses
+fi
 
 rustup target add $target_triple
 
