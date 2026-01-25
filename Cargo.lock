@@ -511,8 +511,7 @@ dependencies = [
 [[package]]
 name = "alacritty_terminal"
 version = "0.25.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46319972e74179d707445f64aaa2893bbf6a111de3a9af29b7eb382f8b39e282"
+source = "git+https://github.com/zed-industries/alacritty?rev=936aee8761a17affc84ab418ae21306c27c26221#936aee8761a17affc84ab418ae21306c27c26221"
 dependencies = [
  "base64 0.22.1",
  "bitflags 2.9.4",
@@ -13677,6 +13676,7 @@ dependencies = [
  "log",
  "lsp",
  "minidumper",
+ "net",
  "node_runtime",
  "paths",
  "pretty_assertions",
@@ -13703,6 +13703,7 @@ dependencies = [
  "unindent",
  "util",
  "watch",
+ "windows 0.61.3",
  "workspace",
  "worktree",
  "zlog",
