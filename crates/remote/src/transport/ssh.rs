@@ -32,7 +32,7 @@ use tempfile::TempDir;
 use util::{
     paths::{PathStyle, RemotePathBuf},
     rel_path::RelPath,
-    shell::ShellKind,
+    shell::{PosixShell, ShellKind},
 };
 
 pub(crate) struct SshRemoteConnection {
@@ -128,10 +128,11 @@ impl From<settings::SshConnection> for SshConnectionOptions {
 
 struct SshSocket {
     connection_options: SshConnectionOptions,
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(windows))]
     socket_path: std::path::PathBuf,
+    /// Extra environment variables needed for the ssh process
     envs: HashMap<String, String>,
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     _proxy: askpass::PasswordProxy,
 }
 
@@ -139,7 +140,7 @@ struct MasterProcess {
     process: Child,
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(not(windows))]
 impl MasterProcess {
     pub fn new(
         askpass_script_path: &std::ffi::OsStr,
@@ -185,7 +186,7 @@ impl MasterProcess {
     }
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(windows)]
 impl MasterProcess {
     const CONNECTION_ESTABLISHED_MAGIC: &str = "ZED_SSH_CONNECTION_ESTABLISHED";
 
@@ -519,16 +520,16 @@ impl SshRemoteConnection {
         // Start the master SSH process, which does not do anything except for establish
         // the connection and keep it open, allowing other ssh commands to reuse it
         // via a control socket.
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(windows))]
         let socket_path = temp_dir.path().join("ssh.sock");
 
-        #[cfg(target_os = "windows")]
+        #[cfg(windows)]
         let mut master_process = MasterProcess::new(
             askpass.script_path().as_ref(),
             connection_options.additional_args(),
             &destination,
         )?;
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(windows))]
         let mut master_process = MasterProcess::new(
             askpass.script_path().as_ref(),
             connection_options.additional_args(),
@@ -570,9 +571,9 @@ impl SshRemoteConnection {
             anyhow::bail!(error_message);
         }
 
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(not(windows))]
         let socket = SshSocket::new(connection_options, socket_path).await?;
-        #[cfg(target_os = "windows")]
+        #[cfg(windows)]
         let socket = SshSocket::new(
             connection_options,
             askpass
@@ -590,7 +591,7 @@ impl SshRemoteConnection {
         let ssh_shell = socket.shell(is_windows).await;
         log::info!("Remote shell discovered: {}", ssh_shell);
 
-        let ssh_shell_kind = ShellKind::new(&ssh_shell, is_windows);
+        let ssh_shell_kind = ShellKind::new_with_fallback(&ssh_shell, is_windows);
         let ssh_platform = socket.platform(ssh_shell_kind, is_windows).await?;
         log::info!("Remote platform discovered: {:?}", ssh_platform);
 
@@ -917,7 +918,7 @@ impl SshRemoteConnection {
         dst_path: &RelPath,
         tmp_path: &RelPath,
     ) -> Result<()> {
-        let shell_kind = ShellKind::Posix;
+        let shell_kind = self.ssh_shell_kind;
         let server_mode = 0o755;
         let orig_tmp_path = tmp_path.display(self.path_style());
         let server_mode = format!("{:o}", server_mode);
@@ -1084,7 +1085,7 @@ impl SshRemoteConnection {
 }
 
 impl SshSocket {
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(not(windows))]
     async fn new(options: SshConnectionOptions, socket_path: PathBuf) -> Result<Self> {
         Ok(Self {
             connection_options: options,
@@ -1093,7 +1094,7 @@ impl SshSocket {
         })
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(windows)]
     async fn new(
         options: SshConnectionOptions,
         password: askpass::EncryptedPassword,
@@ -1137,7 +1138,6 @@ impl SshSocket {
             .expect("shell quoting")
             .into_owned();
         for arg in args {
-            // We're trying to work with: sh, bash, zsh, fish, tcsh, ...?
             debug_assert!(
                 !arg.as_ref().contains('\n'),
                 "multiline arguments do not work in all shells"
@@ -1179,7 +1179,6 @@ impl SshSocket {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
-    #[cfg(not(target_os = "windows"))]
     fn ssh_options<'a>(
         &self,
         command: &'a mut process::Command,
@@ -1191,40 +1190,28 @@ impl SshSocket {
             self.connection_options.additional_args_for_scp()
         };
 
-        command
+        let cmd = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .args(args)
-            .args(["-o", "ControlMaster=no", "-o"])
-            .arg(format!("ControlPath={}", self.socket_path.display()))
-    }
+            .args(args);
 
-    #[cfg(target_os = "windows")]
-    fn ssh_options<'a>(
-        &self,
-        command: &'a mut process::Command,
-        include_port_forwards: bool,
-    ) -> &'a mut process::Command {
-        let args = if include_port_forwards {
-            self.connection_options.additional_args()
-        } else {
-            self.connection_options.additional_args_for_scp()
-        };
-
-        command
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .args(args)
-            .envs(self.envs.clone())
+        if cfg!(windows) {
+            cmd.envs(self.envs.clone());
+        }
+        #[cfg(not(windows))]
+        {
+            cmd.args(["-o", "ControlMaster=no", "-o"])
+                .arg(format!("ControlPath={}", self.socket_path.display()));
+        }
+        cmd
     }
 
     // On Windows, we need to use `SSH_ASKPASS` to provide the password to ssh.
     // On Linux, we use the `ControlPath` option to create a socket file that ssh can use to
-    #[cfg(not(target_os = "windows"))]
     fn ssh_args(&self) -> Vec<String> {
         let mut arguments = self.connection_options.additional_args();
+        #[cfg(not(windows))]
         arguments.extend(vec![
             "-o".to_string(),
             "ControlMaster=no".to_string(),
@@ -1232,12 +1219,7 @@ impl SshSocket {
             format!("ControlPath={}", self.socket_path.display()),
             self.connection_options.ssh_destination(),
         ]);
-        arguments
-    }
-
-    #[cfg(target_os = "windows")]
-    fn ssh_args(&self) -> Vec<String> {
-        let mut arguments = self.connection_options.additional_args();
+        #[cfg(windows)]
         arguments.push(self.connection_options.ssh_destination());
         arguments
     }
@@ -1308,8 +1290,14 @@ impl SshSocket {
 
     async fn shell_posix(&self) -> String {
         const DEFAULT_SHELL: &str = "sh";
+        // TODO: Consider using the user's actual shell instead of hardcoding "sh"
         match self
-            .run_command(ShellKind::Posix, "sh", &["-c", "echo $SHELL"], false)
+            .run_command(
+                ShellKind::Posix(PosixShell::Sh),
+                "sh",
+                &["-c", "echo $SHELL"],
+                false,
+            )
             .await
         {
             Ok(output) => parse_shell(&output, DEFAULT_SHELL),
@@ -1358,26 +1346,26 @@ fn parse_port_number(port_str: &str) -> Result<u16> {
 fn parse_port_forward_spec(spec: &str) -> Result<SshPortForwardOption> {
     let parts: Vec<&str> = spec.split(':').collect();
 
-    match parts.len() {
-        4 => {
-            let local_port = parse_port_number(parts[1])?;
-            let remote_port = parse_port_number(parts[3])?;
+    match *parts {
+        [a, b, c, d] => {
+            let local_port = parse_port_number(b)?;
+            let remote_port = parse_port_number(d)?;
 
             Ok(SshPortForwardOption {
-                local_host: Some(parts[0].to_string()),
+                local_host: Some(a.to_string()),
                 local_port,
-                remote_host: Some(parts[2].to_string()),
+                remote_host: Some(c.to_string()),
                 remote_port,
             })
         }
-        3 => {
-            let local_port = parse_port_number(parts[0])?;
-            let remote_port = parse_port_number(parts[2])?;
+        [a, b, c] => {
+            let local_port = parse_port_number(a)?;
+            let remote_port = parse_port_number(c)?;
 
             Ok(SshPortForwardOption {
                 local_host: None,
                 local_port,
-                remote_host: Some(parts[1].to_string()),
+                remote_host: Some(b.to_string()),
                 remote_port,
             })
         }
@@ -1403,7 +1391,8 @@ impl SshConnectionOptions {
             "-w",
         ];
 
-        let mut tokens = ShellKind::Posix
+        // TODO: Consider using the user's actual shell instead of hardcoding "sh"
+        let mut tokens = ShellKind::Posix(PosixShell::Sh)
             .split(input)
             .context("invalid input")?
             .into_iter();
@@ -1641,7 +1630,7 @@ fn build_command_posix(
                 .context("shell quoting")?
         )?;
         for arg in input_args {
-            let arg = ssh_shell_kind.try_quote(&arg).context("shell quoting")?;
+            let arg = ssh_shell_kind.try_quote(arg).context("shell quoting")?;
             write!(exec, " {}", &arg)?;
         }
     } else {
@@ -1683,7 +1672,7 @@ fn build_command_windows(
     ssh_env: HashMap<String, String>,
     ssh_path_style: PathStyle,
     ssh_shell: &str,
-    _ssh_shell_kind: ShellKind,
+    ssh_shell_kind: ShellKind,
     ssh_args: Vec<String>,
     interactive: Interactive,
 ) -> Result<CommandTemplate> {
@@ -1702,7 +1691,7 @@ fn build_command_windows(
             shell_kind
                 .try_quote(&working_dir)
                 .context("shell quoting")?,
-            shell_kind.sequential_and_commands_separator()
+            ssh_shell_kind.sequential_and_commands_separator()
         )?;
     }
 
@@ -1789,7 +1778,7 @@ mod tests {
             env.clone(),
             PathStyle::Posix,
             "/bin/bash",
-            ShellKind::Posix,
+            ShellKind::Posix(PosixShell::Bash),
             vec!["-o".to_string(), "ControlMaster=auto".to_string()],
             Interactive::No,
         )?;
