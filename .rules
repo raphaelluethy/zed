@@ -188,3 +188,36 @@ Rules emerge from validated patterns, not one-off observations. The workflow is:
 1. Agent notes a pattern during a session.
 2. Team validates the pattern in code review.
 3. A dedicated commit adds the rule with context on *why* it exists.
+
+## Cursor Cloud specific instructions
+
+### Services overview
+
+**Zed editor** is the main product — a standalone desktop code editor. No external services (databases, queues, etc.) are required to build, test, or run it in standalone mode. The `collab` server (collaboration backend) requires PostgreSQL but is not needed for standard editor development.
+
+### Building and running
+
+- Standard commands: `cargo build` (debug), `cargo run` (run), `cargo test --workspace` (tests). See `docs/src/development/linux.md` for details.
+- Lint: use `./script/clippy` (not `cargo clippy` directly) — it adds `--release --all-targets --all-features --deny warnings`.
+- Format: `cargo fmt --check` (or `cargo fmt` to auto-fix).
+
+### Running Zed in cloud VMs (no GPU)
+
+Zed requires a GPU for rendering via wgpu. In headless cloud VMs without hardware GPU:
+
+1. Install Mesa software Vulkan driver: `sudo apt-get install -y mesa-vulkan-drivers mesa-utils libgl1-mesa-dri`
+2. Set environment variables when launching: `DISPLAY=:1 WAYLAND_DISPLAY='' WGPU_BACKEND=gl ZED_ALLOW_EMULATED_GPU=1 XDG_RUNTIME_DIR=/tmp/runtime-ubuntu`
+3. Zed will show an "Unsupported GPU" warning on startup — click "Skip" to continue.
+
+### Linker configuration
+
+The mold linker is installed by `script/linux` on Ubuntu 24.04. To use it, add the following to `~/.cargo/config.toml`:
+
+```toml
+[target.'cfg(target_os = "linux")']
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+```
+
+### Build times
+
+A clean debug build of the full workspace takes ~12 minutes on a cloud VM. Incremental builds are much faster. Release clippy on a single crate takes ~30 seconds after an initial release compilation.
