@@ -306,6 +306,10 @@ pub struct VercelAvailableModel {
 #[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema, MergeFrom)]
 pub struct VercelAiGatewaySettingsContent {
     pub api_url: Option<String>,
+    /// When enabled, requests are only routed to providers with zero data
+    /// retention policies. If no ZDR-compliant provider is available for
+    /// the requested model, the request will fail.
+    pub zero_data_retention: Option<bool>,
     pub available_models: Option<Vec<VercelAiGatewayAvailableModel>>,
 }
 
@@ -317,6 +321,10 @@ pub struct VercelAiGatewayAvailableModel {
     pub max_tokens: u64,
     pub max_output_tokens: Option<u64>,
     pub max_completion_tokens: Option<u64>,
+    /// Override the provider-level `zero_data_retention` setting for this
+    /// specific model. When set, this value takes precedence over the
+    /// provider-level default.
+    pub zero_data_retention: Option<bool>,
     #[serde(default)]
     pub capabilities: OpenAiCompatibleModelCapabilities,
 }

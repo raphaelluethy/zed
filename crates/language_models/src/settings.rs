@@ -111,6 +111,7 @@ impl settings::Settings for AllLanguageModelSettings {
             },
             vercel_ai_gateway: VercelAiGatewaySettings {
                 api_url: vercel_ai_gateway.api_url.unwrap(),
+                zero_data_retention: vercel_ai_gateway.zero_data_retention.unwrap_or(false),
                 available_models: vercel_ai_gateway.available_models.unwrap_or_default(),
             },
             x_ai: XAiSettings {

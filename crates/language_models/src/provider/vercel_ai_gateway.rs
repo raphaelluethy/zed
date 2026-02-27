@@ -1,6 +1,6 @@
 use anyhow::Result;
 use collections::BTreeMap;
-use futures::{AsyncReadExt, FutureExt, StreamExt, future::BoxFuture};
+use futures::{AsyncBufReadExt, AsyncReadExt, FutureExt, StreamExt, future::BoxFuture, io::BufReader, stream::BoxStream};
 use gpui::{AnyView, App, AsyncApp, Context, Entity, SharedString, Task, Window};
 use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest, http};
 use language_model::{
@@ -31,6 +31,7 @@ static API_KEY_ENV_VAR: LazyLock<EnvVar> = env_var!(API_KEY_ENV_VAR_NAME);
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct VercelAiGatewaySettings {
     pub api_url: String,
+    pub zero_data_retention: bool,
     pub available_models: Vec<AvailableModel>,
 }
 
@@ -145,14 +146,21 @@ impl VercelAiGatewayLanguageModelProvider {
             max_tokens: 400_000,
             max_output_tokens: Some(128_000),
             max_completion_tokens: None,
+            zero_data_retention: None,
             capabilities: ModelCapabilities::default(),
         }
     }
 
-    fn create_language_model(&self, model: AvailableModel) -> Arc<dyn LanguageModel> {
+    fn create_language_model(
+        &self,
+        model: AvailableModel,
+        provider_zdr: bool,
+    ) -> Arc<dyn LanguageModel> {
+        let zero_data_retention = model.zero_data_retention.unwrap_or(provider_zdr);
         Arc::new(VercelAiGatewayLanguageModel {
             id: LanguageModelId::from(model.name.clone()),
             model,
+            zero_data_retention,
             state: self.state.clone(),
             http_client: self.http_client.clone(),
             request_limiter: RateLimiter::new(4),
@@ -181,8 +189,9 @@ impl LanguageModelProvider for VercelAiGatewayLanguageModelProvider {
         IconOrSvg::Icon(IconName::AiVercel)
     }
 
-    fn default_model(&self, _cx: &App) -> Option<Arc<dyn LanguageModel>> {
-        Some(self.create_language_model(Self::default_available_model()))
+    fn default_model(&self, cx: &App) -> Option<Arc<dyn LanguageModel>> {
+        let provider_zdr = Self::settings(cx).zero_data_retention;
+        Some(self.create_language_model(Self::default_available_model(), provider_zdr))
     }
 
     fn default_fast_model(&self, _cx: &App) -> Option<Arc<dyn LanguageModel>> {
@@ -203,9 +212,10 @@ impl LanguageModelProvider for VercelAiGatewayLanguageModelProvider {
             models.insert(model.name.clone(), model.clone());
         }
 
+        let provider_zdr = Self::settings(cx).zero_data_retention;
         models
             .into_values()
-            .map(|model| self.create_language_model(model))
+            .map(|model| self.create_language_model(model, provider_zdr))
             .collect()
     }
 
@@ -236,6 +246,7 @@ impl LanguageModelProvider for VercelAiGatewayLanguageModelProvider {
 pub struct VercelAiGatewayLanguageModel {
     id: LanguageModelId,
     model: AvailableModel,
+    zero_data_retention: bool,
     state: Entity<State>,
     http_client: Arc<dyn HttpClient>,
     request_limiter: RateLimiter,
@@ -254,6 +265,7 @@ impl VercelAiGatewayLanguageModel {
         >,
     > {
         let http_client = self.http_client.clone();
+        let zero_data_retention = self.zero_data_retention;
         let (api_key, api_url) = self.state.read_with(cx, |state, cx| {
             let api_url = VercelAiGatewayLanguageModelProvider::api_url(cx);
             (state.api_key_state.key(&api_url), api_url)
@@ -264,18 +276,95 @@ impl VercelAiGatewayLanguageModel {
             let Some(api_key) = api_key else {
                 return Err(LanguageModelCompletionError::NoApiKey { provider });
             };
-            let request = open_ai::stream_completion(
+            let request = stream_completion(
                 http_client.as_ref(),
-                provider.0.as_str(),
                 &api_url,
                 &api_key,
                 request,
+                zero_data_retention,
             );
             let response = request.await.map_err(map_open_ai_error)?;
             Ok(response)
         });
 
         async move { Ok(future.await?.boxed()) }.boxed()
+    }
+}
+
+async fn stream_completion(
+    client: &dyn HttpClient,
+    api_url: &str,
+    api_key: &str,
+    request: open_ai::Request,
+    zero_data_retention: bool,
+) -> Result<BoxStream<'static, Result<ResponseStreamEvent>>, open_ai::RequestError> {
+    let uri = format!("{api_url}/chat/completions");
+    let request_builder = HttpRequest::builder()
+        .method(Method::POST)
+        .uri(uri)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", api_key.trim()));
+
+    let body = if zero_data_retention {
+        let mut value = serde_json::to_value(&request)
+            .map_err(|e| open_ai::RequestError::Other(e.into()))?;
+        value["providerOptions"] = serde_json::json!({
+            "gateway": {
+                "zeroDataRetention": true
+            }
+        });
+        serde_json::to_string(&value).map_err(|e| open_ai::RequestError::Other(e.into()))?
+    } else {
+        serde_json::to_string(&request).map_err(|e| open_ai::RequestError::Other(e.into()))?
+    };
+
+    let request = request_builder
+        .body(AsyncBody::from(body))
+        .map_err(|e| open_ai::RequestError::Other(e.into()))?;
+
+    let mut response = client.send(request).await?;
+    if response.status().is_success() {
+        let reader = BufReader::new(response.into_body());
+        Ok(reader
+            .lines()
+            .filter_map(|line| async move {
+                match line {
+                    Ok(line) => {
+                        let line = line
+                            .strip_prefix("data: ")
+                            .or_else(|| line.strip_prefix("data:"))?;
+                        if line == "[DONE]" {
+                            None
+                        } else {
+                            match serde_json::from_str(line) {
+                                Ok(open_ai::ResponseStreamResult::Ok(response)) => {
+                                    Some(Ok(response))
+                                }
+                                Ok(open_ai::ResponseStreamResult::Err { error }) => {
+                                    Some(Err(anyhow::anyhow!("{error:?}")))
+                                }
+                                Err(error) => Some(Err(anyhow::anyhow!(error))),
+                            }
+                        }
+                    }
+                    Err(error) => Some(Err(anyhow::anyhow!(error))),
+                }
+            })
+            .boxed())
+    } else {
+        let mut body = String::new();
+        response
+            .body_mut()
+            .read_to_string(&mut body)
+            .await
+            .map_err(|e| open_ai::RequestError::Other(e.into()))?;
+
+        Err(open_ai::RequestError::HttpResponseError {
+            provider: "vercel_ai_gateway".to_owned(),
+            status_code: response.status(),
+            body,
+            headers: response.headers().clone(),
+        })
     }
 }
 
@@ -564,6 +653,7 @@ async fn list_models(
             max_tokens: model.context_window.or(model.max_tokens).unwrap_or(128_000),
             max_output_tokens: model.max_tokens,
             max_completion_tokens: None,
+            zero_data_retention: None,
             capabilities: ModelCapabilities {
                 tools: supports_tools,
                 images: supports_images,
