@@ -751,13 +751,55 @@ The Vercel AI Gateway API key will be saved in your keychain.
 
 Zed will also use the `VERCEL_AI_GATEWAY_API_KEY` environment variable if it's defined.
 
-You can also set a custom endpoint for Vercel AI Gateway in your settings file:
+You can also set a custom endpoint for Vercel AI Gateway in your settings
+file:
 
 ```json [settings]
 {
   "language_models": {
     "vercel_ai_gateway": {
       "api_url": "https://ai-gateway.vercel.sh/v1"
+    }
+  }
+}
+```
+
+#### Zero Data Retention {#vercel-ai-gateway-zdr}
+
+Vercel AI Gateway supports
+[zero data retention (ZDR)](https://vercel.com/docs/ai-gateway/zdr), which
+ensures that prompts, outputs, and sensitive data are not retained after
+requests complete. When enabled, requests are only routed to ZDR-compliant
+providers. If no ZDR-compliant provider is available for the requested
+model, the request will fail.
+
+To enable ZDR for all models from this provider:
+
+```json [settings]
+{
+  "language_models": {
+    "vercel_ai_gateway": {
+      "zero_data_retention": true
+    }
+  }
+}
+```
+
+You can also override the provider-level setting on a per-model basis:
+
+```json [settings]
+{
+  "language_models": {
+    "vercel_ai_gateway": {
+      "zero_data_retention": false,
+      "available_models": [
+        {
+          "name": "anthropic/claude-sonnet-4",
+          "display_name": "Claude Sonnet 4",
+          "max_tokens": 200000,
+          "zero_data_retention": true
+        }
+      ]
     }
   }
 }
