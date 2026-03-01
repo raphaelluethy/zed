@@ -188,3 +188,30 @@ Rules emerge from validated patterns, not one-off observations. The workflow is:
 1. Agent notes a pattern during a session.
 2. Team validates the pattern in code review.
 3. A dedicated commit adds the rule with context on *why* it exists.
+
+## Cursor Cloud specific instructions
+
+### Services overview
+
+This is the **Zed code editor** — a Rust monorepo (~230+ crates). The primary binary is `zed` (the editor itself). No external services are needed to build and run the editor client. The collab server (`crates/collab`) requires PostgreSQL, LiveKit, and MinIO but is optional for editor development.
+
+### Build / lint / test
+
+- Build: `cargo build` (debug) or `cargo build --release`
+- Lint: `./script/clippy` (runs clippy in release mode with `--deny warnings`)
+- Test: `cargo test --workspace` (or `cargo test -p <crate>` for a single crate)
+- See `docs/src/development/linux.md` for full Linux build docs
+
+### Running Zed in the cloud VM
+
+The VM has no real GPU. Zed requires a software renderer to launch:
+
+```sh
+export XDG_RUNTIME_DIR=/tmp/xdg-runtime-dir
+mkdir -p "$XDG_RUNTIME_DIR" && chmod 0700 "$XDG_RUNTIME_DIR"
+DISPLAY=:1 WGPU_BACKEND=gl target/debug/zed
+```
+
+- `WGPU_BACKEND=gl` forces the OpenGL backend via Mesa's software rasterizer (lavapipe Vulkan alone does not work; the GL fallback does).
+- The "Unsupported GPU" dialog can be dismissed by clicking **Skip**.
+- `ZED_ALLOW_EMULATED_GPU=1` can suppress the dialog entirely.
