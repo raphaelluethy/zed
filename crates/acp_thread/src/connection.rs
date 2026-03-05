@@ -103,6 +103,10 @@ pub trait AgentConnection {
 
     fn cancel(&self, session_id: &acp::SessionId, cx: &mut App);
 
+    fn supports_rewind(&self, session_id: &acp::SessionId, cx: &App) -> bool {
+        self.truncate(session_id, cx).is_some()
+    }
+
     fn truncate(
         &self,
         _session_id: &acp::SessionId,
