@@ -1273,7 +1273,7 @@ impl AcpThread {
     }
 
     pub fn supports_rewind(&self, cx: &App) -> bool {
-        self.connection.truncate(&self.session_id, cx).is_some()
+        self.connection.supports_rewind(&self.session_id, cx)
     }
 
     pub fn had_error(&self) -> bool {
@@ -2143,8 +2143,9 @@ impl AcpThread {
             None
         };
         let git_store = self.project.read(cx).git_store().clone();
+        let checkpoint_message_id = id.clone();
 
-        cx.spawn(async move |_, cx| {
+        cx.spawn(async move |this, cx| {
             cancel_task.await;
             if let Some(rewind) = rewind {
                 rewind.await?;
@@ -2153,6 +2154,15 @@ impl AcpThread {
                 git_store
                     .update(cx, |git, cx| git.restore_checkpoint(checkpoint, cx))
                     .await?;
+
+                this.update(cx, |this, cx| {
+                    if let Some((_, message)) = this.user_message_mut(&checkpoint_message_id)
+                        && let Some(checkpoint) = message.checkpoint.as_mut()
+                    {
+                        checkpoint.show = false;
+                        cx.notify();
+                    }
+                })?;
             }
 
             Ok(())
@@ -3752,7 +3762,7 @@ mod tests {
 
                     FIRST
 
-                    ## User (checkpoint)
+                    ## User
 
                     second
 

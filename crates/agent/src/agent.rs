@@ -1402,6 +1402,11 @@ impl acp_thread::AgentConnection for NativeAgentConnection {
         });
     }
 
+    fn supports_rewind(&self, session_id: &acp::SessionId, cx: &App) -> bool {
+        self.0
+            .read_with(cx, |agent, _cx| agent.sessions.contains_key(session_id))
+    }
+
     fn truncate(
         &self,
         session_id: &agent_client_protocol::SessionId,
@@ -2668,6 +2673,115 @@ mod internal_tests {
                 .expect("scroll position should be restored after reload");
             assert_eq!(scroll.item_ix, 5);
             assert_eq!(scroll.offset_in_item, gpui::px(12.5));
+        });
+    }
+
+    #[gpui::test]
+    async fn test_rewind_after_loading_thread_from_history(cx: &mut TestAppContext) {
+        init_test(cx);
+        let fs = FakeFs::new(cx.executor());
+        fs.insert_tree(
+            "/",
+            json!({
+                "a": {}
+            }),
+        )
+        .await;
+        let project = Project::test(fs.clone(), [path!("/a").as_ref()], cx).await;
+        let thread_store = cx.new(|cx| ThreadStore::new(cx));
+        let agent = NativeAgent::new(
+            project.clone(),
+            thread_store,
+            Templates::new(),
+            None,
+            fs,
+            &mut cx.to_async(),
+        )
+        .await
+        .unwrap();
+        let connection = Rc::new(NativeAgentConnection(agent.clone()));
+
+        let acp_thread = cx
+            .update(|cx| {
+                connection
+                    .clone()
+                    .new_session(project.clone(), Path::new(path!("/a")), cx)
+            })
+            .await
+            .unwrap();
+        let session_id = acp_thread.read_with(cx, |thread, _| thread.session_id().clone());
+        let thread = agent.read_with(cx, |agent, _| {
+            agent.sessions.get(&session_id).unwrap().thread.clone()
+        });
+
+        let model = Arc::new(FakeLanguageModel::default());
+        thread.update(cx, |thread, cx| {
+            thread.set_model(model.clone(), cx);
+        });
+
+        let send = acp_thread.update(cx, |thread, cx| thread.send(vec!["first".into()], cx));
+        let send = cx.foreground_executor().spawn(send);
+        cx.run_until_parked();
+        model.send_last_completion_stream_text_chunk("FIRST");
+        model.end_last_completion_stream();
+        send.await.unwrap();
+        cx.run_until_parked();
+
+        let send = acp_thread.update(cx, |thread, cx| thread.send(vec!["second".into()], cx));
+        let send = cx.foreground_executor().spawn(send);
+        cx.run_until_parked();
+        model.send_last_completion_stream_text_chunk("SECOND");
+        model.end_last_completion_stream();
+        send.await.unwrap();
+        cx.run_until_parked();
+
+        cx.update(|cx| connection.clone().close_session(&session_id, cx))
+            .await
+            .unwrap();
+        drop(thread);
+        drop(acp_thread);
+
+        let reloaded_thread = agent
+            .update(cx, |agent, cx| agent.open_thread(session_id.clone(), cx))
+            .await
+            .unwrap();
+
+        reloaded_thread.read_with(cx, |thread, cx| {
+            assert!(thread.supports_rewind(cx));
+        });
+
+        let second_message_id = reloaded_thread.read_with(cx, |thread, _| {
+            let acp_thread::AgentThreadEntry::UserMessage(second) = &thread.entries()[2] else {
+                panic!("expected second user message");
+            };
+            second
+                .id
+                .clone()
+                .expect("user message id should be present")
+        });
+
+        reloaded_thread
+            .update(cx, |thread, cx| {
+                thread.restore_checkpoint(second_message_id, cx)
+            })
+            .await
+            .unwrap();
+
+        reloaded_thread.read_with(cx, |thread, cx| {
+            assert_eq!(thread.entries().len(), 2);
+            assert_eq!(
+                thread.to_markdown(cx),
+                indoc::indoc! {"
+                    ## User
+
+                    first
+
+                    ## Assistant
+
+                    FIRST
+
+                "}
+            );
         });
     }
 
