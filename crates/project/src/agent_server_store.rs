@@ -370,8 +370,12 @@ impl AgentServerStore {
         // If we don't have agents from the registry loaded yet, trigger a
         // refresh, which will cause this function to be called again
         let registry_store = AgentRegistryStore::try_global(cx);
-        if new_settings.has_registry_agents()
-            && let Some(registry) = registry_store.as_ref()
+        if new_settings.values().any(|settings| match settings {
+            CustomAgentServerSettings::Custom {
+                icon_from_registry, ..
+            } => icon_from_registry.is_some(),
+            CustomAgentServerSettings::Registry { .. } => true,
+        }) && let Some(registry) = registry_store.as_ref()
         {
             registry.update(cx, |registry, cx| registry.refresh_if_stale(cx));
         }
@@ -413,8 +417,16 @@ impl AgentServerStore {
 
         for (name, settings) in new_settings.iter() {
             match settings {
-                CustomAgentServerSettings::Custom { command, .. } => {
+                CustomAgentServerSettings::Custom {
+                    command,
+                    icon_from_registry,
+                    ..
+                } => {
                     let agent_name = AgentId(name.clone().into());
+                    let icon = icon_from_registry
+                        .as_ref()
+                        .and_then(|id| registry_agents_by_id.get(id))
+                        .and_then(|agent| agent.icon_path().cloned());
                     self.external_agents.insert(
                         agent_name,
                         ExternalAgentEntry::new(
@@ -423,7 +435,7 @@ impl AgentServerStore {
                                 project_environment: project_environment.clone(),
                             }) as Box<dyn ExternalAgentServer>,
                             ExternalAgentSource::Custom,
-                            None,
+                            icon,
                             None,
                         ),
                     );
@@ -1870,17 +1882,11 @@ impl std::ops::DerefMut for AllAgentServersSettings {
     }
 }
 
-impl AllAgentServersSettings {
-    pub fn has_registry_agents(&self) -> bool {
-        self.values()
-            .any(|s| matches!(s, CustomAgentServerSettings::Registry { .. }))
-    }
-}
-
 #[derive(Clone, JsonSchema, Debug, PartialEq)]
 pub enum CustomAgentServerSettings {
     Custom {
         command: AgentServerCommand,
+        icon_from_registry: Option<String>,
         /// The default mode to use for this agent.
         ///
         /// Note: Not only all agents support modes.
@@ -1981,6 +1987,7 @@ impl From<settings::CustomAgentServerSettings> for CustomAgentServerSettings {
                 path,
                 args,
                 env,
+                icon_from_registry,
                 default_mode,
                 default_config_options,
                 favorite_config_option_values,
@@ -1990,6 +1997,7 @@ impl From<settings::CustomAgentServerSettings> for CustomAgentServerSettings {
                     args,
                     env: Some(env),
                 },
+                icon_from_registry,
                 default_mode,
                 default_config_options,
                 favorite_config_option_values,
@@ -2185,6 +2193,53 @@ mod tests {
                 )
             })
         })
+    }
+
+    #[gpui::test]
+    fn custom_agent_reuses_registry_icon_without_installing_the_agent(cx: &mut TestAppContext) {
+        init_test_settings(cx);
+        let registry = init_registry(cx, vec![]);
+        cx.update(|cx| {
+            let settings: settings::CustomAgentServerSettings =
+                serde_json::from_value(serde_json::json!({
+                    "type": "custom",
+                    "command": "agy",
+                    "icon_from_registry": "antigravity-acp"
+                }))
+                .expect("custom agent settings should accept a registry icon ID");
+            AllAgentServersSettings::override_global(
+                AllAgentServersSettings(HashMap::from_iter([(
+                    "my-antigravity".into(),
+                    settings.into(),
+                )])),
+                cx,
+            );
+        });
+        let store = create_agent_server_store(cx);
+        let custom_id = AgentId::from("my-antigravity");
+        assert_eq!(
+            store.read_with(cx, |store, _| store.agent_icon(&custom_id)),
+            None
+        );
+
+        let RegistryAgent::Npx(mut antigravity) = make_npx_agent("antigravity-acp", "1.0.0") else {
+            unreachable!();
+        };
+        let icon: SharedString = "/registry/icons/antigravity.svg".into();
+        antigravity.metadata.icon_path = Some(icon.clone());
+        registry.update(cx, |registry, cx| {
+            registry.set_agents(vec![RegistryAgent::Npx(antigravity)], cx);
+        });
+
+        store.read_with(cx, |store, _| {
+            assert_eq!(store.agent_icon(&custom_id), Some(icon));
+            assert_eq!(
+                store.agent_source(&custom_id),
+                Some(ExternalAgentSource::Custom)
+            );
+            assert_eq!(store.agent_display_name(&custom_id), None);
+            assert!(store.external_agents().eq([&custom_id]));
+        });
     }
 
     #[test]

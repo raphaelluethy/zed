@@ -33,6 +33,8 @@ It is downloaded and updated automatically. If you want to use a manually instal
 
 Note that the `kotlin-lsp.sh` script expects to be run from within the unzipped release zip file, and should not be moved elsewhere.
 
+In a local project with Kotlin LSP `v271.2085.0` or later, place the cursor on a type and run {#action editor::GoToSupertype} or {#action editor::GoToSubtype} from the command palette to navigate to its immediate parents or children. These commands require the language server to advertise type hierarchy support.
+
 ## Kotlin Language Server
 
 The community-maintained [Kotlin Language Server](https://github.com/fwcd/kotlin-language-server) can be used instead of Kotlin LSP by explicitly enabling it in your `settings.json`:

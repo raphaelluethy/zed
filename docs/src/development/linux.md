@@ -51,7 +51,7 @@ You can install a local build on your machine with:
 ./script/install-linux
 ```
 
-This builds `zed` and the `cli` in release mode, installs the binary at `~/.local/bin/zed`, and installs `.desktop` files to `~/.local/share`.
+This builds the editor and CLI in release mode and installs a desktop launcher. The fork's Dev build installs `~/.local/bin/zed-fork`, leaving Nightly's `zed` command alone. Keep `crates/zed/RELEASE_CHANNEL` set to `dev` for a side-by-side install.
 
 ## Wayland & X11
 

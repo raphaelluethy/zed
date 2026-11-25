@@ -305,11 +305,17 @@
   //
   // Default: "bar"
   "cursor_shape": "bar",
+  // Thickness of the editor's vertical bar cursor in pixels.
+  "cursor_bar_thickness": 2,
+  // Thickness of the underline cursor in pixels.
+  "cursor_underline_thickness": 2,
   // Cursor movement animation settings.
   // Enabling this may cause additional editor redraws and increase rendering overhead.
   "cursor_animation": {
     // Whether cursor movement animation is enabled.
     "enabled": false,
+    // Animate short moves only and jump directly to the destination for larger moves.
+    "short_moves_only": false,
   },
   // Determines when the mouse cursor should be hidden in response to keyboard
   // input.

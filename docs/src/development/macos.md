@@ -61,6 +61,8 @@ And to run the tests:
 cargo test --workspace
 ```
 
+To use the fork alongside Zed Nightly, keep `crates/zed/RELEASE_CHANNEL` set to `dev` and build the app with `script/bundle-mac -i`. Open **Zed Dev** and choose **Install CLI** to add `zed-fork` to your PATH without replacing Nightly's `zed` command.
+
 ## Visual Regression Tests
 
 Zed includes visual regression tests that capture screenshots of real Zed windows and compare them against baseline images. These tests require macOS with Screen Recording permission.

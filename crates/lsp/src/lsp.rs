@@ -124,6 +124,7 @@ pub struct LanguageServer {
     process_name: Arc<str>,
     binary: LanguageServerBinary,
     capabilities: RwLock<ServerCapabilities>,
+    supports_type_hierarchy: bool,
     /// Configuration sent to the server, stored for display in the language server logs
     /// buffer. This is represented as the message sent to the LSP in order to avoid cloning it (can
     /// be large in cases like sending schemas to the json server).
@@ -141,6 +142,72 @@ pub struct LanguageServer {
     server: Arc<Mutex<Option<Child>>>,
     workspace_folders: Option<Arc<Mutex<BTreeSet<Uri>>>>,
     root_uri: Uri,
+}
+
+enum InitializeWithTypeHierarchy {}
+
+impl request::Request for InitializeWithTypeHierarchy {
+    type Params = InitializeParams;
+    type Result = InitializeWithTypeHierarchyResult;
+    const METHOD: &'static str = <request::Initialize as request::Request>::METHOD;
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InitializeWithTypeHierarchyResult {
+    capabilities: InitializeCapabilities,
+    server_info: Option<ServerInfo>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InitializeCapabilities {
+    #[serde(flatten)]
+    capabilities: ServerCapabilities,
+    // The pinned lsp-types lacks typeHierarchyProvider in ServerCapabilities.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    type_hierarchy_provider: Option<Value>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum TypeHierarchyDirection {
+    Supertypes,
+    Subtypes,
+}
+
+enum PrepareTypeHierarchy {}
+
+impl request::Request for PrepareTypeHierarchy {
+    type Params = TypeHierarchyPrepareParams;
+    type Result = Option<Vec<Box<RawValue>>>;
+    const METHOD: &'static str = <TypeHierarchyPrepare as request::Request>::METHOD;
+}
+
+#[derive(Serialize, Deserialize)]
+struct TypeHierarchyLookupParams {
+    item: Box<RawValue>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TypeHierarchyTarget {
+    uri: Uri,
+    selection_range: Range,
+}
+
+enum GetSupertypes {}
+enum GetSubtypes {}
+
+impl request::Request for GetSupertypes {
+    type Params = TypeHierarchyLookupParams;
+    type Result = Option<Vec<TypeHierarchyTarget>>;
+    const METHOD: &'static str = <TypeHierarchySupertypes as request::Request>::METHOD;
+}
+
+impl request::Request for GetSubtypes {
+    type Params = TypeHierarchyLookupParams;
+    type Result = Option<Vec<TypeHierarchyTarget>>;
+    const METHOD: &'static str = <TypeHierarchySubtypes as request::Request>::METHOD;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -709,6 +776,7 @@ impl LanguageServer {
                 .unwrap_or_default(),
             binary,
             capabilities: Default::default(),
+            supports_type_hierarchy: false,
             configuration,
             code_action_kinds,
             next_id: Default::default(),
@@ -1101,6 +1169,9 @@ impl LanguageServer {
                     call_hierarchy: Some(CallHierarchyClientCapabilities {
                         dynamic_registration: Some(true),
                     }),
+                    type_hierarchy: Some(TypeHierarchyClientCapabilities {
+                        dynamic_registration: Some(false),
+                    }),
                     document_symbol: Some(DocumentSymbolClientCapabilities {
                         hierarchical_document_symbol_support: Some(true),
                         dynamic_registration: Some(true),
@@ -1178,7 +1249,7 @@ impl LanguageServer {
     ) -> Task<Result<Arc<Self>>> {
         cx.background_spawn(async move {
             let response = self
-                .request::<request::Initialize>(params, timeout)
+                .request::<InitializeWithTypeHierarchy>(params, timeout)
                 .await
                 .into_response()
                 .with_context(|| {
@@ -1192,7 +1263,11 @@ impl LanguageServer {
                 self.version = info.version.map(SharedString::from);
                 self.process_name = info.name.into();
             }
-            self.capabilities = RwLock::new(response.capabilities);
+            self.supports_type_hierarchy = matches!(
+                response.capabilities.type_hierarchy_provider,
+                Some(Value::Bool(true) | Value::Object(_)),
+            );
+            self.capabilities = RwLock::new(response.capabilities.capabilities);
             self.configuration = configuration;
 
             self.notify::<notification::Initialized>(InitializedParams {})?;
@@ -1471,6 +1546,67 @@ impl LanguageServer {
     /// Get the reported capabilities of the running language server.
     pub fn capabilities(&self) -> ServerCapabilities {
         self.capabilities.read().clone()
+    }
+
+    pub fn supports_type_hierarchy(&self) -> bool {
+        self.supports_type_hierarchy
+    }
+
+    pub async fn type_hierarchy_locations(
+        &self,
+        at: TextDocumentPositionParams,
+        direction: TypeHierarchyDirection,
+        timeout: Duration,
+    ) -> Result<Vec<Location>> {
+        let items = self
+            .request::<PrepareTypeHierarchy>(
+                TypeHierarchyPrepareParams {
+                    text_document_position_params: at,
+                    work_done_progress_params: WorkDoneProgressParams::default(),
+                },
+                timeout,
+            )
+            .await
+            .into_response()?
+            .unwrap_or_default();
+
+        let responses = future::join_all(items.into_iter().map(|item| async move {
+            // Pass the server's item back verbatim, including its opaque data.
+            let params = TypeHierarchyLookupParams { item };
+            match direction {
+                TypeHierarchyDirection::Supertypes => {
+                    self.request::<GetSupertypes>(params, timeout).await
+                }
+                TypeHierarchyDirection::Subtypes => {
+                    self.request::<GetSubtypes>(params, timeout).await
+                }
+            }
+            .into_response()
+        }))
+        .await;
+
+        let mut locations = Vec::new();
+        let mut errors = Vec::new();
+        for response in responses {
+            match response {
+                Ok(targets) => {
+                    locations.extend(targets.into_iter().flatten().map(|target| Location {
+                        uri: target.uri,
+                        range: target.selection_range,
+                    }))
+                }
+                Err(error) => errors.push(error),
+            }
+        }
+        if locations.is_empty()
+            && let Some(error) = errors.pop()
+        {
+            return Err(error);
+        }
+        for error in errors {
+            log::warn!("type hierarchy lookup failed on {}: {error:#}", self.name());
+        }
+        Ok(locations)
     }
 
     /// Update the capabilities of the running language server.
@@ -2255,6 +2391,159 @@ mod tests {
         drop(server);
         cx.run_until_parked();
         fake.receive_notification::<notification::Exit>().await;
+    }
+
+    #[gpui::test]
+    async fn test_type_hierarchy_routes_opaque_items_to_the_originating_server(
+        cx: &mut TestAppContext,
+    ) {
+        enum InitializeReply {}
+        impl request::Request for InitializeReply {
+            type Params = InitializeParams;
+            type Result = Value;
+            const METHOD: &'static str = <request::Initialize as request::Request>::METHOD;
+        }
+        enum TypeHierarchyFollowup<const SUPERTYPES: bool> {}
+        impl<const SUPERTYPES: bool> request::Request for TypeHierarchyFollowup<SUPERTYPES> {
+            type Params = Value;
+            type Result = Value;
+            const METHOD: &'static str = if SUPERTYPES {
+                <TypeHierarchySupertypes as request::Request>::METHOD
+            } else {
+                <TypeHierarchySubtypes as request::Request>::METHOD
+            };
+        }
+
+        cx.update(|cx| release_channel::init(semver::Version::new(0, 0, 0), cx));
+        let (server, fake) = FakeLanguageServer::new(
+            LanguageServerId(0),
+            LanguageServerBinary {
+                path: "test-language-server".into(),
+                arguments: vec![],
+                env: None,
+            },
+            "test-lsp".to_string(),
+            Default::default(),
+            &mut cx.to_async(),
+        );
+        fake.set_request_handler::<InitializeReply, _, _>(|params, _| async move {
+            assert!(
+                params
+                    .capabilities
+                    .text_document
+                    .expect("text document capabilities")
+                    .type_hierarchy
+                    .is_some()
+            );
+            Ok(json!({"capabilities": {"typeHierarchyProvider": {}, "hoverProvider": true}}))
+        });
+        let item = json!({
+            "uri": "file:///project/Types.kt",
+            "name": "CurrentType",
+            "kind": 5,
+            "tags": [1],
+            "range": {"start": {"line": 2, "character": 0}, "end": {"line": 2, "character": 30}},
+            "selectionRange": {"start": {"line": 2, "character": 6}, "end": {"line": 2, "character": 17}},
+            "data": {"symbolId": ["project", {"index": 42}]}
+        });
+        fake.set_request_handler::<PrepareTypeHierarchy, _, _>({
+            let item = item.clone();
+            move |params, _| {
+                let item = item.clone();
+                async move {
+                    assert_eq!(
+                        params.text_document_position_params.position,
+                        Position::new(2, 8)
+                    );
+                    let mut unavailable = item.clone();
+                    unavailable["data"] = json!("unavailable");
+                    Ok(Some(vec![
+                        serde_json::value::to_raw_value(&item)?,
+                        serde_json::value::to_raw_value(&unavailable)?,
+                    ]))
+                }
+            }
+        });
+        fake.set_request_handler::<TypeHierarchyFollowup<true>, _, _>({
+            let item = item.clone();
+            move |params, _| {
+                let item = item.clone();
+                async move {
+                    if params["item"]["data"] == "unavailable" {
+                        return Err(anyhow!("prepared item is no longer available"));
+                    }
+                    assert_eq!(params["item"], item);
+                    Ok(json!([{
+                        "uri": "file:///project/Base.kt",
+                        "selectionRange": {"start": {"line": 7, "character": 5}, "end": {"line": 7, "character": 9}}
+                    }]))
+                }
+            }
+        });
+        fake.set_request_handler::<TypeHierarchyFollowup<false>, _, _>(move |params, _| {
+            let item = item.clone();
+            async move {
+                if params["item"]["data"] == "unavailable" {
+                    return Ok(Value::Null);
+                }
+                assert_eq!(params["item"], item);
+                Ok(json!([{
+                    "uri": "file:///project/Child.kt",
+                    "selectionRange": {"start": {"line": 4, "character": 2}, "end": {"line": 4, "character": 7}}
+                }]))
+            }
+        });
+
+        let server = cx
+            .update(|cx| {
+                let params = server.default_initialize_params(false, false, cx);
+                server.initialize(
+                    params,
+                    DidChangeConfigurationParams {
+                        settings: Value::Null,
+                    }
+                    .into(),
+                    DEFAULT_LSP_REQUEST_TIMEOUT,
+                    cx,
+                )
+            })
+            .await
+            .expect("language server initializes with type hierarchy support");
+        assert!(server.supports_type_hierarchy());
+        assert_eq!(
+            server.capabilities().hover_provider,
+            Some(HoverProviderCapability::Simple(true))
+        );
+
+        let at = TextDocumentPositionParams::new(
+            TextDocumentIdentifier::new(
+                Uri::from_str("file:///project/Types.kt").expect("valid URI"),
+            ),
+            Position::new(2, 8),
+        );
+        for (direction, uri, range) in [
+            (
+                TypeHierarchyDirection::Supertypes,
+                "file:///project/Base.kt",
+                Range::new(Position::new(7, 5), Position::new(7, 9)),
+            ),
+            (
+                TypeHierarchyDirection::Subtypes,
+                "file:///project/Child.kt",
+                Range::new(Position::new(4, 2), Position::new(4, 7)),
+            ),
+        ] {
+            assert_eq!(
+                server
+                    .type_hierarchy_locations(at.clone(), direction, DEFAULT_LSP_REQUEST_TIMEOUT)
+                    .await
+                    .expect("type hierarchy response"),
+                vec![Location {
+                    uri: Uri::from_str(uri).expect("valid result URI"),
+                    range
+                }],
+            );
+        }
     }
 
     #[gpui::test]

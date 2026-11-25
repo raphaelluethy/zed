@@ -330,6 +330,7 @@ pub(crate) struct CustomAgentForm {
     name: Entity<Editor>,
     command: Entity<Editor>,
     args: Entity<Editor>,
+    icon_from_registry: Entity<Editor>,
     env: Vec<KeyValueRow>,
     /// Advanced fields not surfaced by the form. They're preserved verbatim so
     /// editing the basic settings doesn't drop a user's hand-written config.
@@ -355,6 +356,7 @@ impl CustomAgentForm {
 
         let mut command_initial = None;
         let mut args_initial = None;
+        let mut icon_initial = None;
         let mut env = Vec::new();
         let mut default_mode = None;
         let mut default_config_options = HashMap::default();
@@ -368,6 +370,7 @@ impl CustomAgentForm {
                     path,
                     args,
                     env: env_map,
+                    icon_from_registry,
                     default_mode: mode,
                     default_config_options: config_options,
                     favorite_config_option_values: favorites,
@@ -376,6 +379,7 @@ impl CustomAgentForm {
                     if !args.is_empty() {
                         args_initial = Some(args.join(" "));
                     }
+                    icon_initial = icon_from_registry.as_deref();
                     for (key, value) in sorted_pairs(env_map) {
                         env.push(new_kv_row(Some(&key), Some(&value), window, cx));
                     }
@@ -404,6 +408,7 @@ impl CustomAgentForm {
             name: new_input("my-agent", name_initial.as_deref(), window, cx),
             command: new_input("/path/to/agent", command_initial.as_deref(), window, cx),
             args: new_input("--flag value", args_initial.as_deref(), window, cx),
+            icon_from_registry: new_input("antigravity-acp", icon_initial, window, cx),
             env,
             default_mode,
             default_config_options,
@@ -529,6 +534,20 @@ fn render_custom_agent_form_page(
                 "Arguments",
                 "Space-separated arguments passed to the command.",
                 input_box(&form.args, cx).into_any_element(),
+                None,
+                None,
+                None,
+                false,
+                cx,
+            )
+            .into_any_element(),
+        )
+        .child(
+            crate::render_settings_item_layout(
+                settings_window,
+                "Registry Icon",
+                "Optional. Use the icon from this ACP Registry agent ID.",
+                input_box(&form.icon_from_registry, cx).into_any_element(),
                 None,
                 None,
                 None,
@@ -778,6 +797,7 @@ struct CustomAgentFormValues {
     name: String,
     command: String,
     args: String,
+    icon_from_registry: String,
     env: Vec<(String, String)>,
     default_mode: Option<String>,
     default_config_options: HashMap<String, AgentConfigOptionValue>,
@@ -793,6 +813,7 @@ fn build_settings_from_form(
         name: form.name.read(cx).text(cx),
         command: form.command.read(cx).text(cx),
         args: form.args.read(cx).text(cx),
+        icon_from_registry: form.icon_from_registry.read(cx).text(cx),
         env: read_kv(&form.env, cx),
         default_mode: form.default_mode.clone(),
         default_config_options: form.default_config_options.clone(),
@@ -826,11 +847,13 @@ fn build_settings_from_values(
         .map(|arg| arg.to_string())
         .collect::<Vec<_>>();
     let env = collect_kv(&values.env, "environment variable")?;
+    let icon_from_registry = values.icon_from_registry.trim();
 
     let content = CustomAgentServerSettings::Custom {
         path: command.into(),
         args,
         env,
+        icon_from_registry: (!icon_from_registry.is_empty()).then(|| icon_from_registry.to_owned()),
         default_mode: values.default_mode,
         default_config_options: values.default_config_options,
         favorite_config_option_values: values.favorite_config_option_values,
@@ -943,6 +966,7 @@ async fn add_custom_agent_settings_entry(
                                 path: "path_to_executable".into(),
                                 args: vec![],
                                 env: HashMap::default(),
+                                icon_from_registry: None,
                                 default_mode: None,
                                 default_config_options: Default::default(),
                                 favorite_config_option_values: Default::default(),
@@ -1039,6 +1063,7 @@ mod tests {
             name: "my-agent".into(),
             command: "/usr/bin/agent".into(),
             args: String::new(),
+            icon_from_registry: String::new(),
             env: Vec::new(),
             default_mode: None,
             default_config_options: HashMap::default(),
@@ -1086,6 +1111,7 @@ mod tests {
         values.name = "  my-agent  ".into();
         values.command = "/usr/bin/agent".into();
         values.args = "--flag  value".into();
+        values.icon_from_registry = " antigravity-acp ".into();
         // Empty values are kept, but rows with a blank key are ignored.
         values.env = vec![
             ("KEY".into(), "VALUE".into()),
@@ -1107,6 +1133,7 @@ mod tests {
                 path: "/usr/bin/agent".into(),
                 args: vec!["--flag".into(), "value".into()],
                 env: expected_env,
+                icon_from_registry: Some("antigravity-acp".into()),
                 default_mode: None,
                 default_config_options: HashMap::default(),
                 favorite_config_option_values: HashMap::default(),

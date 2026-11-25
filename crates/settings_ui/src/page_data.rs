@@ -1429,7 +1429,7 @@ fn appearance_page() -> SettingsPage {
         ]
     }
 
-    fn cursor_section() -> [SettingsPageItem; 7] {
+    fn cursor_section() -> [SettingsPageItem; 10] {
         [
             SettingsPageItem::SectionHeader("Cursor"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -1486,6 +1486,31 @@ fn appearance_page() -> SettingsPage {
                 files: USER,
             }),
             SettingsPageItem::SettingItem(SettingItem {
+                title: "Animate Short Cursor Moves Only",
+                description: "Skip animations for longer moves when cursor animation is enabled.",
+                field: Box::new(SettingField {
+                    organization_override: None,
+                    json_path: Some("cursor_animation.short_moves_only"),
+                    pick: |settings_content| {
+                        settings_content
+                            .editor
+                            .cursor_animation
+                            .as_ref()?
+                            .short_moves_only
+                            .as_ref()
+                    },
+                    write: |settings_content, value, _| {
+                        settings_content
+                            .editor
+                            .cursor_animation
+                            .get_or_insert_default()
+                            .short_moves_only = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
                 title: "Cursor Shape",
                 description: "Cursor shape for the editor.",
                 field: Box::new(SettingField {
@@ -1494,6 +1519,38 @@ fn appearance_page() -> SettingsPage {
                     pick: |settings_content| settings_content.editor.cursor_shape.as_ref(),
                     write: |settings_content, value, _| {
                         settings_content.editor.cursor_shape = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Cursor Bar Thickness",
+                description: "Width of the editor's vertical bar cursor in pixels.",
+                field: Box::new(SettingField {
+                    organization_override: None,
+                    json_path: Some("cursor_bar_thickness"),
+                    pick: |settings_content| settings_content.editor.cursor_bar_thickness.as_ref(),
+                    write: |settings_content, value, _| {
+                        settings_content.editor.cursor_bar_thickness =
+                            value.map(|thickness| thickness.max(1.0));
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Cursor Underline Thickness",
+                description: "Thickness of the editor's underline cursor in pixels.",
+                field: Box::new(SettingField {
+                    organization_override: None,
+                    json_path: Some("cursor_underline_thickness"),
+                    pick: |settings_content| {
+                        settings_content.editor.cursor_underline_thickness.as_ref()
+                    },
+                    write: |settings_content, value, _| {
+                        settings_content.editor.cursor_underline_thickness =
+                            value.map(|thickness| thickness.max(1.0));
                     },
                 }),
                 metadata: None,

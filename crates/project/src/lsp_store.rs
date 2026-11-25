@@ -102,8 +102,8 @@ use lsp::{
     FileOperationRegistrationOptions, FileRename, FileSystemWatcher, LanguageServer,
     LanguageServerBinary, LanguageServerBinaryOptions, LanguageServerId, LanguageServerName,
     LanguageServerSelector, LspRequestFuture, MessageActionItem, MessageType, OneOf,
-    RenameFilesParams, TextEdit, Uri, WillRenameFiles, WorkDoneProgressCancelParams,
-    notification::DidRenameFiles,
+    RenameFilesParams, TextEdit, TypeHierarchyDirection, Uri, WillRenameFiles,
+    WorkDoneProgressCancelParams, notification::DidRenameFiles,
 };
 use node_runtime::read_package_installed_version;
 use parking_lot::Mutex;
@@ -7659,6 +7659,92 @@ impl LspStore {
                 ))
             })
         }
+    }
+
+    pub fn type_hierarchy_locations(
+        &mut self,
+        buffer: &Entity<Buffer>,
+        position: PointUtf16,
+        direction: TypeHierarchyDirection,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<Option<Vec<LocationLink>>>> {
+        let Some(local) = self.as_local() else {
+            return Task::ready(Ok(None));
+        };
+        let Some(file) = File::from_dyn(buffer.read(cx).file()).and_then(File::as_local) else {
+            return Task::ready(Ok(None));
+        };
+        let at = match make_lsp_text_document_position(&file.abs_path(cx), position) {
+            Ok(at) => at,
+            Err(error) => return Task::ready(Err(error)),
+        };
+        let snapshot = buffer.read(cx).snapshot();
+        let scope = snapshot.language_scope_at(position);
+        let servers = buffer.update(cx, |buffer, cx| {
+            local
+                .language_servers_for_buffer(buffer, cx)
+                .filter(|(adapter, server)| {
+                    server.supports_type_hierarchy()
+                        && scope
+                            .as_ref()
+                            .is_none_or(|scope| scope.language_allowed(&adapter.name))
+                        && local
+                            .buffers_opened_in_servers
+                            .get(&buffer.remote_id())
+                            .is_some_and(|servers| servers.contains(&server.server_id()))
+                })
+                .map(|(_, server)| server.clone())
+                .collect::<Vec<_>>()
+        });
+        if servers.is_empty() {
+            return Task::ready(Ok(None));
+        }
+
+        let timeout = ProjectSettings::get_global(cx)
+            .global_lsp_settings
+            .get_request_timeout();
+        let buffer = buffer.clone();
+        cx.spawn(async move |store, cx| {
+            let responses = join_all(
+                servers
+                    .iter()
+                    .map(|server| server.type_hierarchy_locations(at.clone(), direction, timeout)),
+            )
+            .await;
+            let store = store.upgrade().context("LSP store was released")?;
+            let mut links = Vec::new();
+            for (server, response) in servers.into_iter().zip(responses) {
+                let locations = match response {
+                    Ok(locations) => locations,
+                    Err(error) => {
+                        if should_log_lsp_response_error(&error)
+                            && should_log_lsp_request_failure(&format!("{error:#}"))
+                        {
+                            log::error!(
+                                "Type hierarchy lookup failed for {}: {error:#}",
+                                server.name()
+                            );
+                        }
+                        continue;
+                    }
+                };
+                for location in locations {
+                    if let Some(target_links) = location_links_from_lsp(
+                        Some(lsp::GotoDefinitionResponse::Scalar(location)),
+                        store.clone(),
+                        buffer.clone(),
+                        server.server_id(),
+                        cx.clone(),
+                    )
+                    .await
+                    .log_err()
+                    {
+                        links.extend(target_links);
+                    }
+                }
+            }
+            Ok(Some(links.into_iter().dedup().collect()))
+        })
     }
 
     pub fn prepare_call_hierarchy(

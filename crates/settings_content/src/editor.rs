@@ -22,6 +22,18 @@ pub struct EditorSettingsContent {
     ///
     /// Default: bar
     pub cursor_shape: Option<CursorShape>,
+    /// Thickness of the vertical bar cursor in pixels.
+    ///
+    /// Default: 2
+    #[schemars(range(min = 1.0))]
+    #[serde(serialize_with = "crate::serialize_optional_f32_with_two_decimal_places")]
+    pub cursor_bar_thickness: Option<f32>,
+    /// Thickness of the underline cursor in pixels.
+    ///
+    /// Default: 2
+    #[schemars(range(min = 1.0))]
+    #[serde(serialize_with = "crate::serialize_optional_f32_with_two_decimal_places")]
+    pub cursor_underline_thickness: Option<f32>,
     /// Cursor movement animation settings.
     pub cursor_animation: Option<CursorAnimationSettingsContent>,
     /// Determines how snippets are sorted relative to other completion items.
@@ -373,6 +385,10 @@ pub struct CursorAnimationSettingsContent {
     ///
     /// Default: false
     pub enabled: Option<bool>,
+    /// Animate only moves of at most one display row and four display columns.
+    ///
+    /// Default: false
+    pub short_moves_only: Option<bool>,
 }
 
 // Toolbar related settings

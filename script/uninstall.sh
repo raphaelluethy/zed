@@ -33,6 +33,10 @@ prompt_remove_preferences() {
 main() {
     platform="$(uname -s)"
     channel="${ZED_CHANNEL:-stable}"
+    cli_name="zed"
+    if [ "$channel" = "dev" ]; then
+        cli_name="zed-fork"
+    fi
 
     if [ "$platform" = "Darwin" ]; then
         platform="macos"
@@ -84,7 +88,7 @@ linux() {
     rm -rf "$HOME/.local/zed$suffix.app"
 
     # Remove the binary symlink
-    rm -f "$HOME/.local/bin/zed"
+    rm -f "$HOME/.local/bin/$cli_name"
 
     # Remove the .desktop file
     rm -f "$HOME/.local/share/applications/${appid}.desktop"
@@ -132,7 +136,7 @@ macos() {
     fi
 
     # Remove the binary symlink
-    rm -f "$HOME/.local/bin/zed"
+    rm -f "$HOME/.local/bin/$cli_name"
 
     # Remove the database directory for this channel
     rm -rf "$HOME/Library/Application Support/Zed/db/0-$db_suffix"

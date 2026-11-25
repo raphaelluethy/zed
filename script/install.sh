@@ -9,6 +9,10 @@ main() {
     platform="$(uname -s)"
     arch="$(uname -m)"
     channel="${ZED_CHANNEL:-stable}"
+    cli_name="zed"
+    if [ "$channel" = "dev" ]; then
+        cli_name="zed-fork"
+    fi
     ZED_VERSION="${ZED_VERSION:-latest}"
     # Use TMPDIR if available (for environments with non-standard temp directories)
     if [ -n "${TMPDIR:-}" ] && [ -d "${TMPDIR}" ]; then
@@ -54,8 +58,8 @@ main() {
 
     "$platform" "$@"
 
-    if [ "$(command -v zed)" = "$HOME/.local/bin/zed" ]; then
-        echo "Zed has been installed. Run with 'zed'"
+    if [ "$(command -v "$cli_name")" = "$HOME/.local/bin/$cli_name" ]; then
+        echo "Zed has been installed. Run with '$cli_name'"
     else
         echo "To run Zed from your terminal, you must add ~/.local/bin to your PATH"
         echo "Run:"
@@ -74,7 +78,7 @@ main() {
                 ;;
         esac
 
-        echo "To run Zed now, '~/.local/bin/zed'"
+        echo "To run Zed now, '~/.local/bin/$cli_name'"
     fi
 }
 
@@ -131,11 +135,12 @@ linux() {
 
     # Link the binary
     if [ -f "$HOME/.local/zed$suffix.app/bin/zed" ]; then
-        ln -sf "$HOME/.local/zed$suffix.app/bin/zed" "$HOME/.local/bin/zed"
+        cli_path="$HOME/.local/zed$suffix.app/bin/zed"
     else
         # support for versions before 0.139.x.
-        ln -sf "$HOME/.local/zed$suffix.app/bin/cli" "$HOME/.local/bin/zed"
+        cli_path="$HOME/.local/zed$suffix.app/bin/cli"
     fi
+    ln -sf "$cli_path" "$HOME/.local/bin/$cli_name"
 
     # Copy .desktop file
     desktop_file_path="$HOME/.local/share/applications/${appid}.desktop"
@@ -147,7 +152,10 @@ linux() {
         cp "$src_dir/zed$suffix.desktop" "${desktop_file_path}"
     fi
     sed -i "s|Icon=zed|Icon=$HOME/.local/zed$suffix.app/share/icons/hicolor/512x512/apps/zed.png|g" "${desktop_file_path}"
-    sed -i "s|Exec=zed|Exec=$HOME/.local/zed$suffix.app/bin/zed|g" "${desktop_file_path}"
+    sed -i "s|Exec=zed|Exec=$cli_path|g" "${desktop_file_path}"
+    if [ "$channel" = "dev" ]; then
+        sed -i '/^MimeType=/s|x-scheme-handler/zed;||' "${desktop_file_path}"
+    fi
 }
 
 macos() {
@@ -165,7 +173,7 @@ macos() {
 
     mkdir -p "$HOME/.local/bin"
     # Link the binary
-    ln -sf "/Applications/$app/Contents/MacOS/cli" "$HOME/.local/bin/zed"
+    ln -sf "/Applications/$app/Contents/MacOS/cli" "$HOME/.local/bin/$cli_name"
 }
 
 main "$@"

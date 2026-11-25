@@ -345,9 +345,17 @@ pub(crate) struct CursorAnimationStates {
     states: HashMap<usize, CursorAnimationState>,
     newest_selection_id: Option<usize>,
     newest_state: Option<CursorAnimationState>,
+    short_moves_only: bool,
 }
 
 impl CursorAnimationStates {
+    pub(crate) fn set_short_moves_only(&mut self, short_moves_only: bool) {
+        if self.short_moves_only != short_moves_only {
+            self.clear();
+            self.short_moves_only = short_moves_only;
+        }
+    }
+
     pub(crate) fn reconcile_newest_selection(&mut self, newest_selection_id: Option<usize>) {
         // Mouse selection begins with a fresh pending selection id. Seed that id from an
         // independent snapshot of the previous newest cursor's geometry and velocity. The
@@ -386,12 +394,15 @@ impl CursorAnimationStates {
         viewport: CursorViewport,
         now: Instant,
     ) -> Option<[Point<Pixels>; 4]> {
-        self.states.entry(selection_id).or_default().update(
-            logical_position,
-            target_bounds,
-            viewport,
-            now,
-        )
+        let state = self.states.entry(selection_id).or_default();
+        if self.short_moves_only
+            && let Some(previous) = state.last_logical_position
+            && (previous.row.abs_diff(logical_position.row) > 1
+                || previous.column.abs_diff(logical_position.column) > 4)
+        {
+            state.reset();
+        }
+        state.update(logical_position, target_bounds, viewport, now)
     }
 
     pub(crate) fn remove(&mut self, selection_id: usize) {
@@ -1172,6 +1183,29 @@ mod tests {
         spring.update(1.0, 0.1);
         assert!(spring.position.is_finite());
         assert!(spring.velocity.is_finite());
+    }
+
+    #[test]
+    fn short_moves_only_snaps_long_jumps_and_keeps_animating_short_moves() {
+        let now = Instant::now();
+        let mut states = CursorAnimationStates::default();
+        states.set_short_moves_only(true);
+
+        let mut move_cursor = |row, column| {
+            states.update(
+                1,
+                logical_position(row, column),
+                bounds(column as f32 * 8.0, row as f32 * 20.0),
+                viewport(0.0),
+                now,
+            )
+        };
+
+        assert!(move_cursor(0, 0).is_none());
+        assert!(move_cursor(1, 4).is_some());
+        assert!(move_cursor(1, 9).is_none());
+        assert!(move_cursor(3, 9).is_none());
+        assert!(move_cursor(3, 8).is_some());
     }
 
     #[test]

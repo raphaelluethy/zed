@@ -276,6 +276,8 @@ impl VsCodeSettings {
                 "underline" | "underline-thin" => Some(CursorShape::Underline),
                 _ => None,
             }),
+            cursor_bar_thickness: None,
+            cursor_underline_thickness: None,
             cursor_animation: None,
             current_line_highlight: self.read_enum("editor.renderLineHighlight", |s| match s {
                 "gutter" => Some(CurrentLineHighlight::Gutter),

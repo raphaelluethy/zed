@@ -1380,6 +1380,32 @@ Numbers from `0` to `106`, with `0` disabling contrast adjustment.
 }
 ```
 
+### Cursor Bar Thickness {#cursor-bar-thickness}
+
+Search for **Cursor Bar Thickness** in the Settings Editor to change the width of your vertical cursor. The default is 2 pixels, the minimum is 1 pixel, and Zed caps the width at one standard character cell (or 2 pixels if the cell is narrower). A wide bar can cover the next character. This setting does not affect collaborator or terminal cursors.
+
+Or add this to your `settings.json`:
+
+```json [settings]
+{
+  "cursor_shape": "bar",
+  "cursor_bar_thickness": 4
+}
+```
+
+### Cursor Underline Thickness {#cursor-underline-thickness}
+
+Search for **Cursor Underline Thickness** in the Settings Editor to change the height of the editor's underline cursor. The default is 2 pixels. Zed clamps the thickness to between 1 pixel and the line height. A thick underline can cover part of the character above it. This setting does not affect the terminal cursor.
+
+Or add this to your `settings.json`:
+
+```json [settings]
+{
+  "cursor_shape": "underline",
+  "cursor_underline_thickness": 4
+}
+```
+
 ## Cursor Animation {#cursor-animation}
 
 - Description: Animate movement of bar and block cursors, unless reduced motion is enabled.
@@ -1389,7 +1415,21 @@ Numbers from `0` to `106`, with `0` disabling contrast adjustment.
 ```json [settings]
 {
   "cursor_animation": {
-    "enabled": false
+    "enabled": false,
+    "short_moves_only": false
+  }
+}
+```
+
+For less movement, turn on **Cursor Animation** and **Animate Short Cursor Moves Only** in the Settings Editor. Moves of at most one display row and four display columns animate; longer moves jump directly to the destination.
+
+Or add this to your `settings.json`:
+
+```json [settings]
+{
+  "cursor_animation": {
+    "enabled": true,
+    "short_moves_only": true
   }
 }
 ```

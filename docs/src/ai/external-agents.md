@@ -179,6 +179,25 @@ Open [Agent Settings](./agent-settings.md), go to the **External Agents** page, 
 
 Registry-installed agents can also have per-agent settings under `agent_servers.<agent-id>`.
 
+### Reuse an ACP Registry icon {#custom-agent-registry-icon}
+
+For a custom agent running locally, edit it in **External Agents** and enter an ACP Registry agent ID in **Registry Icon**. For example, use `antigravity-acp` to show the Google Antigravity icon. This changes the icon without changing the command or installing the registry agent. If the icon is unavailable, Zed shows the default icon.
+
+Or set `icon_from_registry` in your `settings.json`:
+
+```json [settings]
+{
+  "agent_servers": {
+    "my-antigravity": {
+      "type": "custom",
+      "command": "agy",
+      "args": ["--acp"],
+      "icon_from_registry": "antigravity-acp"
+    }
+  }
+}
+```
+
 ## Extension-Provided Agents {#extension-agents}
 
 Extension-provided agents are deprecated. The [ACP Registry](#registry) is now the way to install agents, and previously installed extension agents are automatically migrated to their registry equivalents.

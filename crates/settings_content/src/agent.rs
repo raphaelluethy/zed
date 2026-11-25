@@ -880,6 +880,8 @@ pub enum CustomAgentServerSettings {
         /// Default: {}
         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         env: HashMap<String, String>,
+        /// ACP Registry agent ID whose icon to use for this custom agent.
+        icon_from_registry: Option<String>,
         /// The default mode to use for this agent.
         ///
         /// Note: Not only all agents support modes.

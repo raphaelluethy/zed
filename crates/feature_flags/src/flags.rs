@@ -72,7 +72,7 @@ impl FeatureFlag for RenameToolFeatureFlag {
     const NAME: &'static str = "rename-tool";
     type Value = PresenceFlag;
 
-    fn enabled_for_staff() -> bool {
+    fn enabled_for_all() -> bool {
         true
     }
 }

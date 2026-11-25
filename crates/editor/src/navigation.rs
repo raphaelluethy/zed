@@ -1787,9 +1787,17 @@ impl Editor {
                     Some(GotoDefinitionKind::Symbol) | None => "Definitions",
                     Some(GotoDefinitionKind::Declaration) => "Declarations",
                     Some(GotoDefinitionKind::Type) => "Types",
+                    Some(GotoDefinitionKind::Subtype) => "Subtypes",
+                    Some(GotoDefinitionKind::Supertype) => "Supertypes",
                 };
                 let title = editor
                     .update_in(cx, |_, _, cx| {
+                        if matches!(
+                            kind,
+                            Some(GotoDefinitionKind::Subtype | GotoDefinitionKind::Supertype)
+                        ) {
+                            return tab_kind.to_owned();
+                        }
                         let target = locations
                             .iter()
                             .flat_map(|(k, v)| iter::repeat(k.clone()).zip(v))

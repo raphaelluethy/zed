@@ -345,6 +345,16 @@ mod tests {
     }
 
     #[gpui::test]
+    fn rename_tool_does_not_require_staff_or_server_flags(cx: &mut App) {
+        use crate::RenameToolFeatureFlag;
+
+        init_settings_store(cx);
+        set_override(RenameToolFeatureFlag::NAME, "off", cx);
+        let store = FeatureFlagStore::default();
+        assert!(store.has_flag::<RenameToolFeatureFlag>(cx));
+    }
+
+    #[gpui::test]
     fn enum_override_selects_specific_variant(cx: &mut App) {
         init_settings_store(cx);
         let store = FeatureFlagStore::default();

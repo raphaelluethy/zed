@@ -190,6 +190,8 @@ fn handle_definition_locations(
         GotoDefinitionKind::Type => LspPickerKind::TypeDefinition,
         GotoDefinitionKind::Declaration => LspPickerKind::Declaration,
         GotoDefinitionKind::Implementation => LspPickerKind::Implementation,
+        GotoDefinitionKind::Subtype => LspPickerKind::Subtype,
+        GotoDefinitionKind::Supertype => LspPickerKind::Supertype,
     };
     workspace.update(cx, |workspace, cx| {
         let project = workspace.project().clone();
@@ -275,6 +277,8 @@ pub enum LspPickerKind {
     Declaration,
     Implementation,
     TypeDefinition,
+    Subtype,
+    Supertype,
 }
 
 impl LspPickerKind {
@@ -285,6 +289,8 @@ impl LspPickerKind {
             LspPickerKind::Declaration => "Filter declarations…",
             LspPickerKind::Implementation => "Filter implementations…",
             LspPickerKind::TypeDefinition => "Filter type definitions…",
+            LspPickerKind::Subtype => "Filter subtypes…",
+            LspPickerKind::Supertype => "Filter supertypes…",
         }
     }
 
@@ -297,6 +303,8 @@ impl LspPickerKind {
             LspPickerKind::Declaration => "No declarations found",
             LspPickerKind::Implementation => "No implementations found",
             LspPickerKind::TypeDefinition => "No type definitions found",
+            LspPickerKind::Subtype => "No subtypes found",
+            LspPickerKind::Supertype => "No supertypes found",
         }
     }
 
@@ -321,6 +329,12 @@ impl LspPickerKind {
             }
             LspPickerKind::TypeDefinition => {
                 editor.definition_locations_of_kind(GotoDefinitionKind::Type, cx)
+            }
+            LspPickerKind::Subtype => {
+                editor.definition_locations_of_kind(GotoDefinitionKind::Subtype, cx)
+            }
+            LspPickerKind::Supertype => {
+                editor.definition_locations_of_kind(GotoDefinitionKind::Supertype, cx)
             }
         }
     }

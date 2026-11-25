@@ -1677,6 +1677,8 @@ pub enum GotoDefinitionKind {
     Declaration,
     Type,
     Implementation,
+    Subtype,
+    Supertype,
 }
 
 pub enum FormatTarget {
@@ -12100,6 +12102,18 @@ impl SemanticsProvider for WeakEntity<Project> {
             GotoDefinitionKind::Declaration => project.declarations(buffer, position, cx),
             GotoDefinitionKind::Type => project.type_definitions(buffer, position, cx),
             GotoDefinitionKind::Implementation => project.implementations(buffer, position, cx),
+            GotoDefinitionKind::Subtype => project.type_hierarchy_locations(
+                buffer,
+                position,
+                lsp::TypeHierarchyDirection::Subtypes,
+                cx,
+            ),
+            GotoDefinitionKind::Supertype => project.type_hierarchy_locations(
+                buffer,
+                position,
+                lsp::TypeHierarchyDirection::Supertypes,
+                cx,
+            ),
         })
         .ok()
     }

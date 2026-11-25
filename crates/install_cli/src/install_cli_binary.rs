@@ -23,25 +23,25 @@ const CANT_INSTALL_DOCS_URL: &str = "https://zed.dev/docs/macos#cant-install-cli
 /// or `None` if the user dismissed the macOS administrator authentication
 /// prompt. Returns an error if the install could not be completed, most
 /// commonly because the user is not an admin.
-async fn install_script(cx: &AsyncApp) -> Result<Option<PathBuf>> {
+async fn install_script(cli_name: &str, cx: &AsyncApp) -> Result<Option<PathBuf>> {
     let cli_path = cx.update(|cx| cx.path_for_auxiliary_executable("cli"))?;
-    let link_path = Path::new("/usr/local/bin/zed");
-    let bin_dir_path = link_path.parent().unwrap();
+    let bin_dir_path = Path::new("/usr/local/bin");
+    let link_path = bin_dir_path.join(cli_name);
 
     // Don't re-create symlink if it points to the same CLI binary.
-    if smol::fs::read_link(link_path).await.ok().as_ref() == Some(&cli_path) {
-        return Ok(Some(link_path.into()));
+    if smol::fs::read_link(&link_path).await.ok().as_ref() == Some(&cli_path) {
+        return Ok(Some(link_path));
     }
 
     // If the symlink is not there or is outdated, first try replacing it
     // without escalating.
-    smol::fs::remove_file(link_path).await.log_err();
-    if smol::fs::unix::symlink(&cli_path, link_path)
+    smol::fs::remove_file(&link_path).await.log_err();
+    if smol::fs::unix::symlink(&cli_path, &link_path)
         .await
         .log_err()
         .is_some()
     {
-        return Ok(Some(link_path.into()));
+        return Ok(Some(link_path));
     }
 
     // The symlink could not be created without escalating, so use osascript
@@ -63,7 +63,7 @@ async fn install_script(cx: &AsyncApp) -> Result<Option<PathBuf>> {
         .await?;
 
     if output.status.success() {
-        return Ok(Some(link_path.into()));
+        return Ok(Some(link_path));
     }
 
     // osascript reports "User canceled." (error -128) when the administrator
@@ -82,6 +82,8 @@ async fn install_script(cx: &AsyncApp) -> Result<Option<PathBuf>> {
 pub fn install_cli_binary(window: &mut Window, cx: &mut Context<Workspace>) {
     const LINUX_PROMPT_DETAIL: &str = "If you installed Zed from our official release add ~/.local/bin to your PATH.\n\nIf you installed Zed from a different source like your package manager, then you may need to create an alias/symlink manually.\n\nDepending on your package manager, the CLI might be named zeditor, zedit, zed-editor or something else.";
 
+    let is_fork = ReleaseChannel::global(cx) == ReleaseChannel::Dev;
+    let cli_name = if is_fork { "zed-fork" } else { "zed" };
     cx.spawn_in(window, async move |workspace, cx| {
         if cfg!(any(target_os = "linux", target_os = "freebsd")) {
             let prompt = cx.prompt(
@@ -93,7 +95,7 @@ pub fn install_cli_binary(window: &mut Window, cx: &mut Context<Workspace>) {
             cx.background_spawn(prompt).detach();
             return Ok(());
         }
-        let path = match install_script(cx.deref()).await {
+        let path = match install_script(cli_name, cx.deref()).await {
             Ok(Some(path)) => path,
             // The user dismissed the administrator prompt; nothing to do.
             Ok(None) => return Ok(()),
@@ -108,7 +110,7 @@ pub fn install_cli_binary(window: &mut Window, cx: &mut Context<Workspace>) {
                         |cx| {
                             cx.new(|cx| {
                                 MessageNotification::new(
-                                    "You can add `zed` to your PATH manually.",
+                                    format!("You can add `{cli_name}` to your PATH manually."),
                                     cx,
                                 )
                                 .with_title("Couldn't install the Zed CLI")
@@ -129,7 +131,7 @@ pub fn install_cli_binary(window: &mut Window, cx: &mut Context<Workspace>) {
                 Toast::new(
                     NotificationId::unique::<InstalledZedCli>(),
                     format!(
-                        "Installed `zed` to {}. You can launch {} from your terminal.",
+                        "Installed `{cli_name}` to {}. You can launch {} from your terminal.",
                         path.to_string_lossy(),
                         ReleaseChannel::global(cx).display_name()
                     ),
@@ -137,7 +139,9 @@ pub fn install_cli_binary(window: &mut Window, cx: &mut Context<Workspace>) {
                 cx,
             )
         })?;
-        register_zed_scheme(cx).await.log_err();
+        if !is_fork {
+            register_zed_scheme(cx).await.log_err();
+        }
         Ok(())
     })
     .detach_and_prompt_err("Cannot install the Zed CLI", window, cx, |_, _, _| None);

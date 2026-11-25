@@ -19,6 +19,8 @@ use ui::scrollbars::ShowScrollbar;
 pub struct EditorSettings {
     pub cursor_blink: bool,
     pub cursor_shape: Option<CursorShape>,
+    pub cursor_bar_thickness: f32,
+    pub cursor_underline_thickness: f32,
     pub cursor_animation: CursorAnimationSettings,
     pub current_line_highlight: CurrentLineHighlight,
     pub selection_highlight: bool,
@@ -78,6 +80,7 @@ pub struct EditorSettings {
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct CursorAnimationSettings {
     pub enabled: bool,
+    pub short_moves_only: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -242,8 +245,11 @@ impl Settings for EditorSettings {
         Self {
             cursor_blink: editor.cursor_blink.unwrap(),
             cursor_shape: editor.cursor_shape.map(Into::into),
+            cursor_bar_thickness: editor.cursor_bar_thickness.unwrap().max(1.0),
+            cursor_underline_thickness: editor.cursor_underline_thickness.unwrap().max(1.0),
             cursor_animation: CursorAnimationSettings {
                 enabled: cursor_animation.enabled.unwrap(),
+                short_moves_only: cursor_animation.short_moves_only.unwrap(),
             },
             current_line_highlight: editor.current_line_highlight.unwrap(),
             selection_highlight: editor.selection_highlight.unwrap(),

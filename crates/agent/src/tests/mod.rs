@@ -7024,8 +7024,7 @@ async fn test_lsp_tools_gated_by_feature_flag(cx: &mut TestAppContext) {
 
     // Without the `lsp-tool` flag, sending a message should produce a
     // completion request whose tool list excludes the LSP tools.
-    // The rename tool is on its own `rename-tool` flag with
-    // `enabled_for_staff`, so it is already visible in debug builds.
+    // The separate `rename-tool` flag is enabled for all users.
     thread
         .update(cx, |thread, cx| {
             thread.send(ClientUserMessageId::new(), ["hello"], cx)
@@ -7044,8 +7043,7 @@ async fn test_lsp_tools_gated_by_feature_flag(cx: &mut TestAppContext) {
     }
     assert!(
         tool_names.iter().any(|t| t == RenameTool::NAME),
-        "expected rename tool to be visible (enabled_for_staff in debug builds), \
-         but completion tools were: {tool_names:?}"
+        "expected rename tool to be visible, but completion tools were: {tool_names:?}"
     );
     // Sanity check: a non-LSP default tool should still be exposed.
     assert!(

@@ -4582,6 +4582,19 @@ impl Project {
         })
     }
 
+    pub fn type_hierarchy_locations<T: ToPointUtf16>(
+        &mut self,
+        buffer: &Entity<Buffer>,
+        position: T,
+        direction: lsp::TypeHierarchyDirection,
+        cx: &mut Context<Self>,
+    ) -> Task<Result<Option<Vec<LocationLink>>>> {
+        let position = position.to_point_utf16(buffer.read(cx));
+        self.lsp_store.update(cx, |lsp_store, cx| {
+            lsp_store.type_hierarchy_locations(buffer, position, direction, cx)
+        })
+    }
+
     pub fn prepare_call_hierarchy<T: ToPointUtf16>(
         &mut self,
         buffer: &Entity<Buffer>,

@@ -627,6 +627,10 @@ actions!(
         GoToNextReference,
         /// Goes to the previous reference to the symbol under the cursor.
         GoToPreviousReference,
+        /// Goes to an immediate subtype of the type under the cursor.
+        GoToSubtype,
+        /// Goes to an immediate supertype of the type under the cursor.
+        GoToSupertype,
         /// Goes to type definition in a split pane.
         GoToTypeDefinitionSplit,
         /// Goes to the next document highlight.

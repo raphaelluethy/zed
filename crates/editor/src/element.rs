@@ -11,10 +11,10 @@ use crate::{
     ConflictsOurs, ConflictsOursMarker, ConflictsOuter, ConflictsTheirs, ConflictsTheirsMarker,
     ContextMenuPlacement, CursorShape, CustomBlockId, DisplayDiffHunk, DisplayPoint, DisplayRow,
     EditDisplayMode, EditPrediction, Editor, EditorMode, EditorSettings, EditorSnapshot,
-    EditorStyle, FILE_HEADER_HEIGHT, FocusedBlock, GutterDimensions, HalfPageDown, HalfPageUp,
-    HandleInput, HoveredCursor, InlayHintRefreshReason, LineDown, LineHighlight, LineUp,
-    MAX_LINE_LEN, MINIMAP_FONT_SIZE, PageDown, PageUp, Point, RowExt, RowRangeExt, Selection,
-    SelectionDragState, SizingBehavior, SoftWrap, ToPoint,
+    EditorStyle, FILE_HEADER_HEIGHT, FocusedBlock, GoToSubtype, GoToSupertype, GotoDefinitionKind,
+    GutterDimensions, HalfPageDown, HalfPageUp, HandleInput, HoveredCursor, InlayHintRefreshReason,
+    LineDown, LineHighlight, LineUp, MAX_LINE_LEN, MINIMAP_FONT_SIZE, PageDown, PageUp, Point,
+    RowExt, RowRangeExt, Selection, SelectionDragState, SizingBehavior, SoftWrap, ToPoint,
     code_context_menus::{CodeActionsMenu, MENU_ASIDE_MAX_WIDTH, MENU_ASIDE_MIN_WIDTH, MENU_GAP},
     column_pixels,
     cursor_animation::{CursorViewport, LogicalCursorPosition, animated_corners_overlap_target},
@@ -568,6 +568,16 @@ impl EditorElement {
         register_action(editor, window, |editor, action, window, cx| {
             editor
                 .go_to_type_definition_split(action, window, cx)
+                .detach_and_log_err(cx);
+        });
+        register_action(editor, window, |editor, _: &GoToSubtype, window, cx| {
+            editor
+                .go_to_definition_of_kind(GotoDefinitionKind::Subtype, false, window, cx)
+                .detach_and_log_err(cx);
+        });
+        register_action(editor, window, |editor, _: &GoToSupertype, window, cx| {
+            editor
+                .go_to_definition_of_kind(GotoDefinitionKind::Supertype, false, window, cx)
                 .detach_and_log_err(cx);
         });
         register_action(editor, window, Editor::open_url);
@@ -1164,7 +1174,10 @@ impl EditorElement {
             let mut request_animation_frame = false;
 
             let show_local_cursors = editor.show_local_cursors(window, cx);
-            let animation_settings = EditorSettings::get_global(cx).cursor_animation;
+            let settings = EditorSettings::get_global(cx);
+            let bar_thickness = px(settings.cursor_bar_thickness).min(em_advance.max(px(2.0)));
+            let underline_thickness = px(settings.cursor_underline_thickness).min(line_height);
+            let animation_settings = settings.cursor_animation;
             let animation_enabled = animation_settings.enabled && !cx.reduce_motion();
             let animation_context = animation_enabled.then(|| {
                 (
@@ -1181,6 +1194,9 @@ impl EditorElement {
             });
 
             if animation_enabled {
+                editor
+                    .cursor_animations
+                    .set_short_moves_only(animation_settings.short_moves_only);
                 let newest_animation_selection_id = if editor.leader_id.is_none()
                     && cursor_shape_supports_cursor_animation(editor.cursor_shape)
                 {
@@ -1331,6 +1347,12 @@ impl EditorElement {
                         block_width,
                         origin: point(x, y),
                         line_height,
+                        bar_thickness: if selection.is_local {
+                            bar_thickness
+                        } else {
+                            px(2.0)
+                        },
+                        underline_thickness,
                         shape: selection.cursor_shape,
                         block_text,
                         cursor_name: None,
@@ -11010,6 +11032,8 @@ pub struct CursorLayout {
     origin: gpui::Point<Pixels>,
     block_width: Pixels,
     line_height: Pixels,
+    bar_thickness: Pixels,
+    underline_thickness: Pixels,
     color: Hsla,
     shape: CursorShape,
     block_text: Option<ShapedLine>,
@@ -11037,6 +11061,8 @@ impl CursorLayout {
             origin,
             block_width,
             line_height,
+            bar_thickness: px(2.0),
+            underline_thickness: px(2.0),
             color,
             shape,
             block_text,
@@ -11049,7 +11075,7 @@ impl CursorLayout {
         match self.shape {
             CursorShape::Bar => Bounds {
                 origin: self.origin + origin,
-                size: size(px(2.0), self.line_height),
+                size: size(self.bar_thickness, self.line_height),
             },
             CursorShape::Block | CursorShape::Hollow => Bounds {
                 origin: self.origin + origin,
@@ -11058,8 +11084,8 @@ impl CursorLayout {
             CursorShape::Underline => Bounds {
                 origin: self.origin
                     + origin
-                    + gpui::Point::new(Pixels::ZERO, self.line_height - px(2.0)),
-                size: size(self.block_width, px(2.0)),
+                    + gpui::Point::new(Pixels::ZERO, self.line_height - self.underline_thickness),
+                size: size(self.block_width, self.underline_thickness),
             },
         }
     }
@@ -13822,6 +13848,26 @@ mod tests {
 
         // line height is close to 1/4 the target height
         assert_eq!(EditorElement::spacer_pattern_period(20.0, 4.8), 5.0);
+    }
+
+    #[test]
+    fn underline_cursor_thickness_keeps_bottom_edge_fixed() {
+        let mut cursor = CursorLayout::new(
+            point(px(3.), px(5.)),
+            px(9.),
+            px(18.),
+            gpui::black(),
+            CursorShape::Underline,
+            None,
+        );
+        let content_origin = point(px(7.), px(11.));
+        let default_bounds = cursor.bounds(content_origin);
+        cursor.underline_thickness = px(5.);
+        let thicker_bounds = cursor.bounds(content_origin);
+
+        assert_eq!(default_bounds.size.height, px(2.));
+        assert_eq!(thicker_bounds.origin, point(px(10.), px(29.)));
+        assert_eq!(thicker_bounds.size, size(px(9.), px(5.)));
     }
 
     #[test]

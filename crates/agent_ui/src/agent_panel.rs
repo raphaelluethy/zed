@@ -7146,6 +7146,7 @@ mod tests {
                         path: PathBuf::from("/usr/bin/fake-agent"),
                         args: Vec::new(),
                         env: Default::default(),
+                        icon_from_registry: None,
                         default_mode: None,
                         default_config_options: Default::default(),
                         favorite_config_option_values: Default::default(),
