@@ -123,8 +123,6 @@ To see which files specifically have been edited, expand the accordion bar that 
 
 You can accept or reject each individual change hunk, or the whole set of changes made by the agent.
 
-For [external agents](./external-agents.md), **Review Changes** can revert pending file edits that Zed applies on the agent's behalf. It can't revert writes the agent makes directly or rewind the agent's conversation.
-
 Edit diffs can also appear inline in individual files with the same
 keep/reject hunk controls as the multi-buffer review pane. This temporarily overrides the buffer's git diff while review is active. Enable it by setting `agent.single_file_review` to `true` in your settings.
 

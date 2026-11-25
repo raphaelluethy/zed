@@ -6,7 +6,7 @@ use futures::{FutureExt, StreamExt, channel::mpsc};
 use gpui::{
     App, AppContext, AsyncApp, Context, Entity, SharedString, Subscription, Task, WeakEntity,
 };
-use language::{Anchor, Buffer, BufferEvent, DiskState, Point, ToOffset, ToPoint};
+use language::{Anchor, Buffer, BufferEvent, Point, ToOffset, ToPoint};
 use project::{Project, ProjectItem, lsp_store::OpenLspBufferHandle};
 use std::{
     cmp,
@@ -125,14 +125,8 @@ impl ActionLog {
                         existing_file_content,
                     },
                     TrackedBufferStatus::Modified | TrackedBufferStatus::Deleted => {
-                        let was_read_before_creation = tracked.diff_base.is_empty()
-                            && buffer
-                                .read(cx)
-                                .file()
-                                .is_some_and(|file| file.disk_state() == DiskState::New);
                         TrackedBufferStatus::Created {
-                            existing_file_content: (!was_read_before_creation)
-                                .then_some(tracked.diff_base),
+                            existing_file_content: Some(tracked.diff_base),
                         }
                     }
                 }

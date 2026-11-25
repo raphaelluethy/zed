@@ -31,8 +31,7 @@ use gpui::{
 use itertools::Itertools;
 use language::language_settings::FormatOnSave;
 use language::{
-    Anchor, Buffer, BufferEditSource, BufferSnapshot, DiskState, LanguageRegistry, Point, ToPoint,
-    text_diff,
+    Anchor, Buffer, BufferEditSource, BufferSnapshot, LanguageRegistry, Point, ToPoint, text_diff,
 };
 use markdown::{Markdown, MarkdownOptions};
 pub use mention::*;
@@ -8407,16 +8406,7 @@ impl AcpThread {
 
             let format_on_save = cx.update(|cx| {
                 action_log.update(cx, |action_log, cx| {
-                    let current = buffer.read(cx);
-                    if current.is_empty()
-                        && current
-                            .file()
-                            .is_some_and(|file| file.disk_state() == DiskState::New)
-                    {
-                        action_log.buffer_created(buffer.clone(), cx);
-                    } else {
-                        action_log.buffer_read(buffer.clone(), cx);
-                    }
+                    action_log.buffer_read(buffer.clone(), cx);
                 });
 
                 let format_on_save = buffer.update(cx, |buffer, cx| {
@@ -16153,71 +16143,6 @@ mod tests {
             "zero\none\ntwo\nthree\nfour\nfive\n"
         );
         request.await.unwrap();
-    }
-
-    #[gpui::test]
-    async fn rejecting_mediated_writes_removes_created_files_and_restores_existing_files(
-        cx: &mut TestAppContext,
-    ) {
-        init_test(cx);
-        let fs = FakeFs::new(cx.executor());
-        fs.insert_tree(
-            path!("/project"),
-            json!({"existing.txt": "before\n", "empty.txt": ""}),
-        )
-        .await;
-        let project = Project::test(fs.clone(), [path!("/project").as_ref()], cx).await;
-        let connection = Rc::new(FakeAgentConnection::new());
-        let thread = cx
-            .update(|cx| {
-                connection.new_session(project, PathList::new(&[Path::new(path!("/project"))]), cx)
-            })
-            .await
-            .expect("create an ACP thread");
-
-        let absent_file = thread
-            .update(cx, |thread, cx| {
-                thread.read_text_file(path!("/project/absent.txt").into(), None, None, false, cx)
-            })
-            .await
-            .expect("read the empty buffer for an absent file");
-        assert!(absent_file.is_empty());
-
-        for (path, content) in [
-            (path!("/project/existing.txt"), "after\n"),
-            (path!("/project/empty.txt"), "was empty\n"),
-            (path!("/project/new.txt"), "created\n"),
-            (path!("/project/absent.txt"), "created after read\n"),
-        ] {
-            thread
-                .update(cx, |thread, cx| {
-                    thread.write_text_file(path.into(), content.into(), cx)
-                })
-                .await
-                .expect("apply a mediated ACP write");
-            assert_eq!(
-                fs.read_file_sync(path).expect("written file"),
-                content.as_bytes()
-            );
-        }
-        cx.run_until_parked();
-        let action_log = thread.read_with(cx, |thread, _| thread.action_log().clone());
-        action_log
-            .update(cx, |log, cx| log.reject_all_edits(None, cx))
-            .await;
-
-        assert_eq!(
-            fs.read_file_sync(path!("/project/existing.txt"))
-                .expect("restored file"),
-            b"before\n"
-        );
-        assert_eq!(
-            fs.read_file_sync(path!("/project/empty.txt"))
-                .expect("previously empty file still exists"),
-            b""
-        );
-        assert!(fs.read_file_sync(path!("/project/new.txt")).is_err());
-        assert!(fs.read_file_sync(path!("/project/absent.txt")).is_err());
     }
 
     #[gpui::test]
